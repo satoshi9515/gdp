@@ -16,9 +16,11 @@ class CreateYoutubersTable extends Migration
      
         Schema::create('youtubers', function (Blueprint $table) {
             $table->bigIncrements('id');
-            $table->string('post_title');
-            $table->string('post_desc');
-	    $table->integer('user_id');
+            $table->string('category');
+            $table->string('name');
+            $table->string('comment');
+            $table->string('channel');
+	        $table->string('url');
             $table->timestamps();
         });
 

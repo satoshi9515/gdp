@@ -23,7 +23,78 @@ class YoutubersController extends Controller
     
     public function youtube()
     {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::orderBy('created_at', 'asc')->paginate(5);
         
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function comedyyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','comedy')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function prettyyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','Pretty')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function handsomeyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','Handsome')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function jlptyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','jlpt')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function conversationyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','conversation')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
+        return view('/youtubers');
+    }
+    
+    public function animeyoutubers()
+    {
+         // 全ての投稿を取得
+        $youtubers = Youtuber::where('category','Anime')->paginate(5);
+        
+        return view('youtubers',[
+            'youtubers'=> $youtubers
+            ]);   
         return view('/youtubers');
     }
     
@@ -52,15 +123,6 @@ class YoutubersController extends Controller
     }
 
 
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create()
-    {
-        //
-    }
 
     /**
      * Store a newly created resource in storage.
@@ -68,12 +130,12 @@ class YoutubersController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function setyoutubes(Request $request)
     {
         //バリデーション 
         $validator = Validator::make($request->all(), [
-            'post_title' => 'required|max:255',
-            'post_desc' => 'required|max:255',
+            'name' => 'required|max:255',
+            'comment' => 'required|max:1000',
         ]);
         
         //バリデーション:エラー
@@ -85,12 +147,20 @@ class YoutubersController extends Controller
         
         //以下に登録処理を記述（Eloquentモデル）
         $youtubers = new Youtuber;
-        $youtubers->post_title = $request->post_title;
-        $youtubers->post_desc = $request->post_desc;
-        $youtubers->user_id = Auth::id();//ここでログインしているユーザidを登録しています
+        $youtubers->category = $request->category;
+        $youtubers->name = $request->name;
+        $youtubers->comment = $request->comment;
+        $youtubers->channel = $request->channel;
+        $youtubers->url = $request->url;
         $youtubers->save();
         
-        return redirect('/');
+        return view('/settubes');
+    }
+    
+    public function regi()
+    {
+        //
+        return view('/settubes');
     }
 
     /**
