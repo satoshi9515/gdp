@@ -120,6 +120,8 @@
             <section class="col-md-8 mb-2">
                 <h3 class="border-bottom"><a href="{{url('/interviews')}}">The interview of Game engineers working in Japan </a></h3>
                 <p class="XX">Seeing the role model of successful game engineers working in Japan might be good incentives to improve your skill. </p>
+                <a href="interviews"><img class="container-md" width="560"  src="/images/gamedeveloper.jpg" ></a>
+           
             </section>
                 <!-- 右サイドバー -->
             <section class="col-md-2 mb-2">
@@ -140,6 +142,7 @@
                 </div>
                 <p class="ml-auto mr-auto">Going to Japanese school in Japan is the fast way to improve Japanese. Currently, it is difficult to
                     go to Japan and learn in the school. In the future we will introduce recommended Japanese schools here.</p>
+                <a href="schools"><img class="container-md" width="560"  src="/images/lesson.jpg" ></a>
             </section>
             <!-- 右サイドバー -->
             <section class="col-md-2 mb-2">

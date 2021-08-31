@@ -75,7 +75,7 @@
                         </section>
                         
                          <!-- 右サイドバー -->
-                        <section class="col-md-2 mt-4  mb-5">
+                        <section class="col-md-2 mt-4 mb-2">
                     
                         </section>
                     

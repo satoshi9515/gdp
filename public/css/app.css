@@ -469,12 +469,29 @@ mark,
   background-image: url('/images/topvisual.jpg');
   width: 100%;
   height:200px;
+  
 }
+
+.schoolvisual{
+  background-image: url('/images/lesson.jpg');
+  width: 100%;
+  
+  height:350px;
+  text-shadow:1px 1px #000000;
+}
+
+
 .mainvisual-text{
   margin:0 auto;
   padding:20px;
   font-size:1.5em;
   text-align:center;
+  
+}
+
+.aboutvisual{
+  background-image: url('/images/geek2.jpg');
+  text-shadow:1px 1px #000000;
   
 }
 
