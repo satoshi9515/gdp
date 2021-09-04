@@ -17,7 +17,6 @@ Route::get('/youtubers', 'YoutubersController@youtube');
 Route::get('/about', 'YoutubersController@about');
 Route::get('/learningapps', 'LearningappsController@learningapp');
 Route::get('/schools', 'YoutubersController@schools');
-Route::get('/interviews', 'YoutubersController@interviews');
 Route::get('/regi', 'YoutubersController@regi');
 
 Route::get('/comedyyoutubers', 'YoutubersController@comedyyoutubers');
@@ -34,6 +33,19 @@ Route::get('/listening', 'LearningappsController@listening');
 Route::get('/writing', 'LearningappsController@writing');
 Route::get('/reading', 'LearningappsController@reading');
 
+Route::get('/games', 'GamesController@gaming');
+Route::get('/playstation', 'GamesController@playstation');
+Route::get('/nintendo', 'GamesController@nintendo');
+Route::get('/online', 'GamesController@online');
+Route::get('/othergames', 'GamesController@othergames');
+
+Route::get('/interviews', 'InterviewsController@interviews');
+Route::get('/mobile', 'InterviewsController@mobile');
+Route::get('/console', 'InterviewsController@console');
+Route::get('/creator', 'InterviewsController@creator');
+Route::get('/otherinterviews', 'InterviewsController@otherinterviews');
+
+Route::get('/interview/1', 'InterviewsController@inter1');
 
 
 
@@ -42,5 +54,7 @@ Route::get('/home', 'HomeController@index')->name('home');
 Route::get('/', 'YoutubersController@index');
 Route::post('/settubes', 'YoutubersController@setyoutubes');
 Route::post('/setapps', 'LearningappsController@setapps');
+Route::post('/setgames', 'GamesController@setgames');
+Route::post('/setinterviews', 'InterviewsController@setinterviews');
 
 

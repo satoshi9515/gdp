@@ -15,6 +15,12 @@
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         About
                         <span class="badge badge-primary badge-pill"></span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Game News
+                        <span class="badge badge-primary badge-pill">20</span>
+                    </li>
+                
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                     Youtubers
                     <span class="badge badge-primary badge-pill">20</span>
@@ -36,8 +42,9 @@
             <!-- メインコンテンツ -->
             <section class="col-md-8 mb-2">
                 <h3 class="border-bottom"><a href='about'>About</a></h3>
-                <p>JapanGameDevPot is the curation media to collect the info about Japanese learning tool for job seekers who eager 
-                    to work for a gaming and IT company in Japan. Most of Japanese companies are so conservative that engineers communicate 
+                <p>Japan Ⓖame Ⓓev Ⓟot is the curation media to collect the info about Japanese learning tool for job seekers who eager 
+                    to work for a gaming and IT company in Japan. It provides the latest news about game that excite your heart. In addition, 
+                    it supports you to get job in Japanese game industry.Most of Japanese companies are so conservative that engineers communicate 
                     in Japanese.Therefore, they set high goal line of Japanese proficiency. As I have supported international students to get 
                     job offers from Japanese companies, the fastest way to imrpove Japanese is to find the way to learn Japanese as they like
                     and continue e.g. Youtubers, actress, online chat, anime, games. The website helps you find your favorite Japanese learning
@@ -56,6 +63,32 @@
             </section>
 
             <!-- 二つ目のコンテンツ -->
+            <section class="col-md-2 mt-4 mb-2">
+                
+            </section>
+            <!-- メインコンテンツ -->
+            <section class="col-md-8 mb-2">
+                <h3 class="border-bottom"><a href="{{url('https://blog.playstation.com/2021/09/02/pre-order-horizon-forbidden-west-now-collectors-and-digital-deluxe-editions-detailed/')}}">Featured Game News </a></h3>
+
+                <p>Japan Ⓖame Ⓓev Ⓟot collects trendy game news. Please wait for weekly updates!</p>
+                    
+                <a href="{{url('https://blog.playstation.com/2021/09/02/pre-order-horizon-forbidden-west-now-collectors-and-digital-deluxe-editions-detailed/')}}"><img class="container-md" width="560"  src="/images/gametop.PNG" ></a>
+                </section>
+
+             <!-- 右サイドバー -->
+            <section class="col-md-2 d-none d-md-block d-lg-block d-xl-block border rounded mb-2">
+                <p class="text-center font-weight-bold border-bottom mt-2 mb-2">Scholarship info</p>
+                <a href='https://aseanop.com/the-university-of-tokyo-japanese-government-mext-scholarship-2022/'> 
+                    <img class="d-block mx-auto" src="/images/todai.png" height="100" width="150">
+                </a>
+                <div class="text-center">
+                    <a class="font-weight-bold border-bottom mt-2" href='https://aseanop.com/the-university-of-tokyo-japanese-government-mext-scholarship-2022/'> MEXT scholarship
+                    </a>
+                        
+                    </div>
+                <p class="text-center">The University of Tokyo Japanese Government (MEXT) Scholarship 2022 fully funded Master & PhD</p>
+            </section>
+            
             <!-- 左サイドバー -->
             <section class="col-md-2 mt-4 mb-2">
                 

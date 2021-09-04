@@ -148,6 +148,139 @@
             
 
         </section>
+        
+        <section class="row w-50 ">      
+            <div class="card-body ">
+                <div class="card-title">
+                    ゲームニュース登録フォーム
+                </div>
+                
+                <!-- バリデーションエラーの表示に使用-->
+                @include('common.errors')
+                <!-- 投稿フォーム -->
+                <form method="post" action='setgames'  class="form-horizontal" >
+                    {{ csrf_field() }}
+                    <!-- カテゴリー -->
+                    <div>ゲームニュース</div>
+                    <div class="form-group">
+                        カテゴリー
+                        <div class="col-sm-6">
+                            <select name="category" class="form-control">
+                                <option value="playstation">Playstation</option>
+                                <option value="nintendo">Nintendo</option>
+                                <option value="online">Online Games</option>
+                                <option value="othergames">Others</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Youtubeのタイトル -->
+                    <div class="form-group">
+                        ゲームニュースのタイトル
+                        <div class="col-sm-6">
+                            <input type="name" name="name" class="form-control">
+                        </div>
+                    </div>
+
+                    <!-- Youtubeのコメント -->
+                    <div class="form-group">
+                        ゲームニュースのコメント
+                        <div class="col-sm-6">
+                            <input type="name" name="comment" class="form-control">
+                        </div>
+                    </div>
+                    
+                     <div class="form-group">
+                        ゲームニュースビジュアル
+                        <div class="col-sm-6">
+                            <input type="name" name="channel" class="form-control">
+                        </div>
+                    </div>
+
+                    <!-- YoutubeのURL -->
+                    <div class="form-group">
+                        ゲームニュースURL
+                        <div class="col-sm-6">
+                            <input type="name" name="url" class="form-control">
+                        </div>
+                    </div>
+                    
+                    
+
+                    <!--　登録ボタン -->
+                    <div class="form-group">
+                        <div class="col-sm-offset-3 col-sm-6">
+                            <button type="submit" class="btn btn-primary">
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+
+        </section>
+        
+         <section class="row w-50 ">      
+            <div class="card-body ">
+                <div class="card-title">
+                    インタビュー登録フォーム
+                </div>
+                
+                <!-- バリデーションエラーの表示に使用-->
+                @include('common.errors')
+                <!-- 投稿フォーム -->
+                <form method="post" action='setinterviews'  class="form-horizontal" >
+                    {{ csrf_field() }}
+                    <!-- カテゴリー -->
+                    <div>インタビュー</div>
+                    <div class="form-group">
+                        カテゴリー
+                        <div class="col-sm-6">
+                            <select name="category" class="form-control">
+                                <option value="mobile">Mobile</option>
+                                <option value="console">Console</option>
+                                <option value="creator">Creator</option>
+                                <option value="otherinterviews">Others</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Youtubeのタイトル -->
+                    <div class="form-group">
+                        インタビューのタイトル
+                        <div class="col-sm-6">
+                            <input type="name" name="name" class="form-control">
+                        </div>
+                    </div>
+
+                    <!-- Youtubeのコメント -->
+                    <div class="form-group">
+                        インタビューのコメント
+                        <div class="col-sm-6">
+                            <input type="name" name="comment" class="form-control">
+                        </div>
+                    </div>
+                    
+                     <div class="form-group">
+                        インタビュービジュアル
+                        <div class="col-sm-6">
+                            <input type="name" name="channel" class="form-control">
+                        </div>
+                    </div>
+
+                
+                    <!--　登録ボタン -->
+                    <div class="form-group">
+                        <div class="col-sm-offset-3 col-sm-6">
+                            <button type="submit" class="btn btn-primary">
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+
+        </section>
     </div>
           
 @endsection

@@ -1,7 +1,7 @@
 <!-- resources/views/posts.blade.php -->
 @extends('layouts.app')
 @section('content')
-<h2 class="text-center mt-3 mb-2">Featured interviews of Game developers in Japan </h2>
+<h2 class="text-center mt-3 mb-2">Featured Game News </h2>
 
 <div class="container">
         <section class="row">
@@ -9,42 +9,43 @@
             <section class="col-md-2 mb-4 border-primary mb-5">
                 <ul class="list-group border-primary">
                      <li class="list-group-item d-flex justify-content-between align-items-center border-primary">
-                        <a href="interviews">All category</a>
+                        <a href="games">All category</a>
                         <span class="badge badge-primary badge-pill">20</span>
                     </li>
                     
                     <li class="list-group-item d-flex justify-content-between align-items-center border-primary">
-                        <a href="mobile">Mobile Game deveploer</a>
+                        <a href="playstation">Playstation</a>
                         <span class="badge badge-primary badge-pill">20</span>
                     </li>
                     
                     <li class="list-group-item d-flex justify-content-between align-items-center border-primary">
-                        <a href="console">Console Game deveploer</a>
+                        <a href="nintendo">Nintendo</a>
                         <span class="badge badge-primary badge-pill">20</span>
                     </li>
                     
                     <li class="list-group-item d-flex justify-content-between align-items-center border-primary">
-                        <a href="creator">Game creator</a>
+                        <a href="online">Online Games</a>
                         <span class="badge badge-primary badge-pill">20</span>
                     </li>
                     
+                
                     
                 </ul>
             </section>
             <!-- メインコンテンツ -->
            
             <!-- 全ての登録リスト -->
-            @if (count($interviews) > 0)
-                @foreach ($interviews as $interview)
+            @if (count($games) > 0)
+                @foreach ($games as $game)
 
                         <section class="col-md-8  mb-5  align-items-start">
                             
-                            <h3 class="border-bottom pb"><a  href="{{ url('interview/'.$interview->id) }}">{{ $interview->name }}</a></h3>
+                            <h3 class="border-bottom pb"><a target=”_blank” href="{{ $game->url }}">{{ $game->name }}</a></h3>
     
-                            <p class="">{{ $interview->comment }}</p>
+                            <p class="">{{ $game->comment }}</p>
                                 
-                            <a href="{{ $interview->url }}">
-                                <img class="container-md" width="300"  src="{{ $interview->channel }}"  target=”_blank”>
+                            <a href="{{ $game->url }}">
+                                <img class="container-md" width="300"  src="{{ $game->channel }}"  target=”_blank”>
                             </a>
                         </section>
     
@@ -64,7 +65,7 @@
                         </section>
                     
                 @endforeach
-                　　　{{ $interviews->links()}}
+                　　　{{ $games->links()}}
             @endif
             
 
@@ -76,4 +77,3 @@
     </div>
           
 @endsection
-

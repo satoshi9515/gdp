@@ -41,6 +41,7 @@
                     <!-- Left Side Of Navbar -->
                     <ul class="navbar-nav mr-auto">
                         <li class="navv m-4"><a class="text-white" href="{{url('/about')}}">About</a> </li>
+                        <li class="navv m-4"><a class="text-white" href="{{url('/games')}}">Game News</a> </li>
                         <li class="navv m-4"><a class="text-white" href="{{url('/youtubers')}}">Youtubers</a> </li>
                         <li class="navv m-4"><a class="text-white" href="{{url('/learningapps')}}">Japanese Study apps</a> </li>
                         <li class="navv m-4"><a class="text-white" href="{{url('/schools')}}">Language Schools</a> </li>
