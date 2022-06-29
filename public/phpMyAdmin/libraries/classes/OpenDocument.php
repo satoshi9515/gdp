@@ -1,23 +1,20 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Simple interface for creating OASIS OpenDocument files.
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin;
 
-use PhpMyAdmin\ZipExtension;
+use function strftime;
 
 /**
  * Simplfied OpenDocument creator class
- *
- * @package PhpMyAdmin
  */
 class OpenDocument
 {
-
-    const NS = <<<EOT
+    public const NS = <<<EOT
 xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
 xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
 xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
@@ -34,11 +31,11 @@ EOT;
      *
      * @return string  OASIS OpenDocument data
      *
-     * @access  public
+     * @access public
      */
     public static function create($mime, $data)
     {
-        $data = array(
+        $data = [
             $mime,
             $data,
             '<?xml version="1.0" encoding="UTF-8"?' . '>'
@@ -50,12 +47,12 @@ EOT;
             . '<meta:generator>phpMyAdmin ' . PMA_VERSION . '</meta:generator>'
             . '<meta:initial-creator>phpMyAdmin ' . PMA_VERSION
             . '</meta:initial-creator>'
-            . '<meta:creation-date>' . strftime('%Y-%m-%dT%H:%M:%S')
+            . '<meta:creation-date>' . @strftime('%Y-%m-%dT%H:%M:%S')
             . '</meta:creation-date>'
             . '</office:meta>'
             . '</office:document-meta>',
             '<?xml version="1.0" encoding="UTF-8"?' . '>'
-            . '<office:document-styles ' . OpenDocument::NS
+            . '<office:document-styles ' . self::NS
             . ' office:version="1.0">'
             . '<office:font-face-decls>'
             . '<style:font-face style:name="Arial Unicode MS"'
@@ -160,18 +157,19 @@ EOT;
             . ' manifest:full-path="meta.xml"/>'
             . '<manifest:file-entry manifest:media-type="text/xml"'
             . ' manifest:full-path="styles.xml"/>'
-            . '</manifest:manifest>'
-        );
+            . '</manifest:manifest>',
+        ];
 
-        $name = array(
+        $name = [
             'mimetype',
             'content.xml',
             'meta.xml',
             'styles.xml',
-            'META-INF/manifest.xml'
-        );
+            'META-INF/manifest.xml',
+        ];
 
         $zipExtension = new ZipExtension();
+
         return $zipExtension->createFile($data, $name);
     }
 }

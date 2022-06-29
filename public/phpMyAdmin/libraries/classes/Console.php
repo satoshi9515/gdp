@@ -1,21 +1,17 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Used to render the console of PMA's pages
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin;
 
-use PhpMyAdmin\Bookmark;
-use PhpMyAdmin\Relation;
-use PhpMyAdmin\Template;
-use PhpMyAdmin\Util;
+use function count;
+use function sprintf;
 
 /**
  * Class used to output the console
- *
- * @package PhpMyAdmin
  */
 class Console
 {
@@ -25,7 +21,7 @@ class Console
      * @access private
      * @var bool
      */
-    private $_isEnabled;
+    private $isEnabled;
 
     /**
      * Whether we are servicing an ajax request.
@@ -33,20 +29,24 @@ class Console
      * @access private
      * @var bool
      */
-    private $_isAjax;
+    private $isAjax;
 
-    /**
-     * @var Relation
-     */
+    /** @var Relation */
     private $relation;
+
+    /** @var Template */
+    public $template;
 
     /**
      * Creates a new class instance
      */
     public function __construct()
     {
-        $this->_isEnabled = true;
-        $this->relation = new Relation();
+        global $dbi;
+
+        $this->isEnabled = true;
+        $this->relation = new Relation($dbi);
+        $this->template = new Template();
     }
 
     /**
@@ -54,36 +54,34 @@ class Console
      * we are servicing an ajax request
      *
      * @param bool $isAjax Whether we are servicing an ajax request
-     *
-     * @return void
      */
-    public function setAjax($isAjax)
+    public function setAjax(bool $isAjax): void
     {
-        $this->_isAjax = (boolean) $isAjax;
+        $this->isAjax = $isAjax;
     }
 
     /**
      * Disables the rendering of the footer
-     *
-     * @return void
      */
-    public function disable()
+    public function disable(): void
     {
-        $this->_isEnabled = false;
+        $this->isEnabled = false;
     }
 
     /**
      * Renders the bookmark content
      *
      * @access public
-     * @return string
      */
-    public static function getBookmarkContent()
+    public static function getBookmarkContent(): string
     {
+        global $dbi;
+
+        $template = new Template();
         $cfgBookmark = Bookmark::getParams($GLOBALS['cfg']['Server']['user']);
         if ($cfgBookmark) {
             $bookmarks = Bookmark::getList(
-                $GLOBALS['dbi'],
+                $dbi,
                 $GLOBALS['cfg']['Server']['user']
             );
             $count_bookmarks = count($bookmarks);
@@ -99,15 +97,13 @@ class Console
             } else {
                 $welcomeMessage = __('No bookmarks');
             }
-            unset($count_bookmarks, $private_message, $shared_message);
-            return Template::get('console/bookmark_content')
-                ->render(
-                    array(
-                        'welcome_message'    => $welcomeMessage,
-                        'bookmarks'         => $bookmarks,
-                    )
-                );
+
+            return $template->render('console/bookmark_content', [
+                'welcome_message' => $welcomeMessage,
+                'bookmarks' => $bookmarks,
+            ]);
         }
+
         return '';
     }
 
@@ -116,37 +112,37 @@ class Console
      *
      * @return array list of scripts
      */
-    public function getScripts()
+    public function getScripts(): array
     {
-        return array('console.js');
+        return ['console.js'];
     }
 
     /**
      * Renders the console
      *
      * @access public
-     * @return string
      */
-    public function getDisplay()
+    public function getDisplay(): string
     {
-        if ((! $this->_isAjax) && $this->_isEnabled) {
+        if (! $this->isAjax && $this->isEnabled) {
             $cfgBookmark = Bookmark::getParams(
                 $GLOBALS['cfg']['Server']['user']
             );
 
-            $image = Util::getImage('console', __('SQL Query Console'));
+            $image = Html\Generator::getImage('console', __('SQL Query Console'));
             $_sql_history = $this->relation->getHistory(
                 $GLOBALS['cfg']['Server']['user']
             );
             $bookmarkContent = static::getBookmarkContent();
 
-            return Template::get('console/display')->render([
+            return $this->template->render('console/display', [
                 'cfg_bookmark' => $cfgBookmark,
                 'image' => $image,
                 'sql_history' => $_sql_history,
                 'bookmark_content' => $bookmarkContent,
             ]);
         }
+
         return '';
     }
 }

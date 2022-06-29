@@ -1,18 +1,24 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Second authentication factor handling
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Plugins\TwoFactor;
 
+use PhpMyAdmin\Plugins\TwoFactorPlugin;
 use PhpMyAdmin\Response;
 use PhpMyAdmin\TwoFactor;
-use PhpMyAdmin\Template;
-use PhpMyAdmin\Plugins\TwoFactorPlugin;
-use Samyoul\U2F\U2FServer\U2FServer;
-use Samyoul\U2F\U2FServer\U2FException;
+use CodeLts\U2F\U2FServer\U2FException;
+use CodeLts\U2F\U2FServer\U2FServer;
+use stdClass;
+use Throwable;
+use Twig\Error\LoaderError;
+use Twig\Error\RuntimeError;
+use Twig\Error\SyntaxError;
+use function json_decode;
+use function json_encode;
 
 /**
  * Hardware key based two-factor authentication
@@ -21,9 +27,7 @@ use Samyoul\U2F\U2FServer\U2FException;
  */
 class Key extends TwoFactorPlugin
 {
-    /**
-     * @var string
-     */
+    /** @var string */
     public static $id = 'key';
 
     /**
@@ -34,9 +38,11 @@ class Key extends TwoFactorPlugin
     public function __construct(TwoFactor $twofactor)
     {
         parent::__construct($twofactor);
-        if (!isset($this->_twofactor->config['settings']['registrations'])) {
-            $this->_twofactor->config['settings']['registrations'] = [];
+        if (isset($this->twofactor->config['settings']['registrations'])) {
+            return;
         }
+
+        $this->twofactor->config['settings']['registrations'] = [];
     }
 
     /**
@@ -47,8 +53,8 @@ class Key extends TwoFactorPlugin
     public function getRegistrations()
     {
         $result = [];
-        foreach ($this->_twofactor->config['settings']['registrations'] as $index => $data) {
-            $reg = new \StdClass;
+        foreach ($this->twofactor->config['settings']['registrations'] as $index => $data) {
+            $reg = new stdClass();
             $reg->keyHandle = $data['keyHandle'];
             $reg->publicKey = $data['publicKey'];
             $reg->certificate = $data['certificate'];
@@ -56,36 +62,39 @@ class Key extends TwoFactorPlugin
             $reg->index = $index;
             $result[] = $reg;
         }
+
         return $result;
     }
 
     /**
      * Checks authentication, returns true on success
      *
-     * @return boolean
+     * @return bool
      */
     public function check()
     {
-        $this->_provided = false;
-        if (!isset($_POST['u2f_authentication_response']) || !isset($_SESSION['authenticationRequest'])) {
+        $this->provided = false;
+        if (! isset($_POST['u2f_authentication_response'], $_SESSION['authenticationRequest'])) {
             return false;
         }
-        $this->_provided = true;
+        $this->provided = true;
         try {
             $response = json_decode($_POST['u2f_authentication_response']);
-            if (is_null($response)) {
+            if ($response === null) {
                 return false;
             }
-            $authentication = U2FServer::authenticate(
+            $auth = U2FServer::authenticate(
                 $_SESSION['authenticationRequest'],
                 $this->getRegistrations(),
                 $response
             );
-            $this->_twofactor->config['settings']['registrations'][$authentication->index]['counter'] = $authentication->counter;
-            $this->_twofactor->save();
+            $this->twofactor->config['settings']['registrations'][$auth->index]['counter'] = $auth->counter;
+            $this->twofactor->save();
+
             return true;
         } catch (U2FException $e) {
-            $this->_message = $e->getMessage();
+            $this->message = $e->getMessage();
+
             return false;
         }
     }
@@ -116,7 +125,8 @@ class Key extends TwoFactorPlugin
         );
         $_SESSION['authenticationRequest'] = $request;
         $this->loadScripts();
-        return Template::get('login/twofactor/key')->render([
+
+        return $this->template->render('login/twofactor/key', [
             'request' => json_encode($request),
             'is_https' => $GLOBALS['PMA_Config']->isHttps(),
         ]);
@@ -126,6 +136,12 @@ class Key extends TwoFactorPlugin
      * Renders user interface to configure two-factor authentication
      *
      * @return string HTML code
+     *
+     * @throws U2FException
+     * @throws Throwable
+     * @throws LoaderError
+     * @throws RuntimeError
+     * @throws SyntaxError
      */
     public function setup()
     {
@@ -136,7 +152,8 @@ class Key extends TwoFactorPlugin
         $_SESSION['registrationRequest'] = $registrationData['request'];
 
         $this->loadScripts();
-        return Template::get('login/twofactor/key_configure')->render([
+
+        return $this->template->render('login/twofactor/key_configure', [
             'request' => json_encode($registrationData['request']),
             'signatures' => json_encode($registrationData['signatures']),
             'is_https' => $GLOBALS['PMA_Config']->isHttps(),
@@ -146,32 +163,35 @@ class Key extends TwoFactorPlugin
     /**
      * Performs backend configuration
      *
-     * @return boolean
+     * @return bool
      */
     public function configure()
     {
-        $this->_provided = false;
-        if (! isset($_POST['u2f_registration_response']) || ! isset($_SESSION['registrationRequest'])) {
+        $this->provided = false;
+        if (! isset($_POST['u2f_registration_response'], $_SESSION['registrationRequest'])) {
             return false;
         }
-        $this->_provided = true;
+        $this->provided = true;
         try {
             $response = json_decode($_POST['u2f_registration_response']);
-            if (is_null($response)) {
+            if ($response === null) {
                 return false;
             }
             $registration = U2FServer::register(
-                $_SESSION['registrationRequest'], $response
+                $_SESSION['registrationRequest'],
+                $response
             );
-            $this->_twofactor->config['settings']['registrations'][] = [
+            $this->twofactor->config['settings']['registrations'][] = [
                 'keyHandle' => $registration->getKeyHandle(),
                 'publicKey' => $registration->getPublicKey(),
                 'certificate' => $registration->getCertificate(),
                 'counter' => $registration->getCounter(),
             ];
+
             return true;
         } catch (U2FException $e) {
-            $this->_message = $e->getMessage();
+            $this->message = $e->getMessage();
+
             return false;
         }
     }

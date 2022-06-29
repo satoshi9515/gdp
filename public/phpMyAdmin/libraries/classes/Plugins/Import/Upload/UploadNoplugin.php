@@ -1,18 +1,18 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Provides upload functionalities for the import plugins
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Plugins\Import\Upload;
 
 use PhpMyAdmin\Plugins\UploadInterface;
+use function array_key_exists;
+use function trim;
 
 /**
  * Implementation for no plugin
- *
- * @package PhpMyAdmin
  */
 class UploadNoplugin implements UploadInterface
 {
@@ -40,21 +40,20 @@ class UploadNoplugin implements UploadInterface
     {
         global $SESSION_KEY;
 
-        if (trim($id) == "") {
+        if (trim($id) == '') {
             return null;
         }
-        if (!array_key_exists($id, $_SESSION[$SESSION_KEY])) {
-            $_SESSION[$SESSION_KEY][$id] = array(
+        if (! array_key_exists($id, $_SESSION[$SESSION_KEY])) {
+            $_SESSION[$SESSION_KEY][$id] = [
                 'id'       => $id,
                 'finished' => false,
                 'percent'  => 0,
                 'total'    => 0,
                 'complete' => 0,
-                'plugin'   => UploadNoplugin::getIdKey(),
-            );
+                'plugin'   => self::getIdKey(),
+            ];
         }
-        $ret = $_SESSION[$SESSION_KEY][$id];
 
-        return $ret;
+        return $_SESSION[$SESSION_KEY][$id];
     }
 }

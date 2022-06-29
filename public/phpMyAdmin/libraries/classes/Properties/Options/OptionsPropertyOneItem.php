@@ -1,82 +1,80 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Superclass for the single Property Item classes.
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Properties\Options;
 
 /**
  * Parents only single property items (not groups).
  * Defines possible options and getters and setters for them.
- *
- * @package PhpMyAdmin
  */
 abstract class OptionsPropertyOneItem extends OptionsPropertyItem
 {
     /**
      * Whether to force or not
      *
-     * @var bool
+     * @var bool|string
      */
-    private $_force_one;
+    private $forceOne;
     /**
      * Values
      *
      * @var array
      */
-    private $_values;
+    private $values;
     /**
      * Doc
      *
      * @var string
      */
-    private $_doc;
+    private $doc;
     /**
      * Length
      *
      * @var int
      */
-    private $_len;
+    private $len;
     /**
      * Size
      *
      * @var int
      */
-    private $_size;
+    private $size;
     /* ~~~~~~~~~~~~~~~~~~~~ Getters and Setters ~~~~~~~~~~~~~~~~~~~~ */
 
     /**
      * Gets the force parameter
      *
-     * @return string
+     * @return bool|string
      */
     public function getForce()
     {
-        return $this->_force_one;
+        return $this->forceOne;
     }
 
     /**
      * Sets the force parameter
      *
-     * @param bool $force force parameter
+     * @param bool|string $force force parameter
      *
      * @return void
      */
     public function setForce($force)
     {
-        $this->_force_one = $force;
+        $this->forceOne = $force;
     }
 
     /**
      * Gets the values
      *
-     * @return string
+     * @return array
      */
     public function getValues()
     {
-        return $this->_values;
+        return $this->values;
     }
 
     /**
@@ -88,17 +86,17 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function setValues(array $values)
     {
-        $this->_values = $values;
+        $this->values = $values;
     }
 
     /**
      * Gets MySQL documentation pointer
      *
-     * @return array
+     * @return string
      */
     public function getDoc()
     {
-        return $this->_doc;
+        return $this->doc;
     }
 
     /**
@@ -110,7 +108,7 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function setDoc($doc)
     {
-        $this->_doc = $doc;
+        $this->doc = $doc;
     }
 
     /**
@@ -120,7 +118,7 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function getLen()
     {
-        return $this->_len;
+        return $this->len;
     }
 
     /**
@@ -132,7 +130,7 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function setLen($len)
     {
-        $this->_len = $len;
+        $this->len = $len;
     }
 
     /**
@@ -142,7 +140,7 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function getSize()
     {
-        return $this->_size;
+        return $this->size;
     }
 
     /**
@@ -154,6 +152,6 @@ abstract class OptionsPropertyOneItem extends OptionsPropertyItem
      */
     public function setSize($size)
     {
-        $this->_size = $size;
+        $this->size = $size;
     }
 }

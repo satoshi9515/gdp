@@ -13,31 +13,31 @@
             <section class="col-md-2 mb-2">
                 <ul class="list-group">
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        About
-                        <span class="badge badge-primary badge-pill"></span>
+                        <a  href='about'>About</a>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Game News
-                        <span class="badge badge-primary badge-pill">20</span>
+                        <a  href='games'>Game News</a>
                     </li>
                 
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Youtubers
-                    <span class="badge badge-primary badge-pill">20</span>
+                        <a  href='youtubers'>YouTubers</a>
+                    </li>
+                    
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a  href='learningapps'>Japanese learning apps</a>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Japanese learning apps
-                    <span class="badge badge-primary badge-pill">20</span>
+                    
+                     <a  href='interviews'>Interview columns</a>
                     </li>
+                    
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Interview columns
-                    <span class="badge badge-primary badge-pill">20</span>
+                    
+                    
+                     <a  href='schools'>Language schools</a>
                     </li>
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Language schools
-                    <span class="badge badge-primary badge-pill">20</span>
-                    </li>
-                    </ul>
+                    
+                </ul>
             </section>
             <!-- メインコンテンツ -->
             <section class="col-md-8 mb-2">

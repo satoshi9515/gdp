@@ -1,245 +1,264 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Hold the PhpMyAdmin\Display\Results class
- *
- * @package PhpMyAdmin
- */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Display;
 
+use PhpMyAdmin\Config\SpecialSchemaLinks;
 use PhpMyAdmin\Core;
 use PhpMyAdmin\DatabaseInterface;
+use PhpMyAdmin\Html\Generator;
 use PhpMyAdmin\Index;
 use PhpMyAdmin\Message;
+use PhpMyAdmin\Plugins\Transformations\Output\Text_Octetstream_Sql;
+use PhpMyAdmin\Plugins\Transformations\Output\Text_Plain_Json;
+use PhpMyAdmin\Plugins\Transformations\Output\Text_Plain_Sql;
 use PhpMyAdmin\Plugins\Transformations\Text_Plain_Link;
+use PhpMyAdmin\Plugins\TransformationsPlugin;
 use PhpMyAdmin\Relation;
 use PhpMyAdmin\Response;
 use PhpMyAdmin\Sanitize;
 use PhpMyAdmin\Sql;
+use PhpMyAdmin\SqlParser\Parser;
+use PhpMyAdmin\SqlParser\Statements\SelectStatement;
 use PhpMyAdmin\SqlParser\Utils\Query;
 use PhpMyAdmin\Table;
 use PhpMyAdmin\Template;
 use PhpMyAdmin\Transformations;
 use PhpMyAdmin\Url;
 use PhpMyAdmin\Util;
+use stdClass;
+use const MYSQLI_TYPE_BIT;
+use function array_filter;
+use function array_keys;
+use function array_merge;
+use function array_shift;
+use function bin2hex;
+use function ceil;
+use function class_exists;
+use function count;
+use function explode;
+use function file_exists;
+use function floor;
+use function htmlspecialchars;
+use function implode;
+use function intval;
+use function is_array;
+use function is_object;
+use function json_encode;
+use function mb_check_encoding;
+use function mb_strlen;
+use function mb_strpos;
+use function mb_strtolower;
+use function mb_strtoupper;
+use function mb_substr;
+use function md5;
+use function method_exists;
+use function mt_rand;
+use function pack;
+use function preg_match;
+use function preg_replace;
+use function str_replace;
+use function strcasecmp;
+use function strip_tags;
+use function stripos;
+use function strlen;
+use function strpos;
+use function strtoupper;
+use function substr;
+use function trim;
 
 /**
  * Handle all the functionalities related to displaying results
  * of sql queries, stored procedure, browsing sql processes or
  * displaying binary log.
- *
- * @package PhpMyAdmin
  */
 class Results
 {
     // Define constants
-    const NO_EDIT_OR_DELETE = 'nn';
-    const UPDATE_ROW = 'ur';
-    const DELETE_ROW = 'dr';
-    const KILL_PROCESS = 'kp';
+    public const NO_EDIT_OR_DELETE = 'nn';
+    public const UPDATE_ROW = 'ur';
+    public const DELETE_ROW = 'dr';
+    public const KILL_PROCESS = 'kp';
 
-    const POSITION_LEFT = 'left';
-    const POSITION_RIGHT = 'right';
-    const POSITION_BOTH = 'both';
-    const POSITION_NONE = 'none';
+    public const POSITION_LEFT = 'left';
+    public const POSITION_RIGHT = 'right';
+    public const POSITION_BOTH = 'both';
+    public const POSITION_NONE = 'none';
 
-    const PLACE_TOP_DIRECTION_DROPDOWN = 'top_direction_dropdown';
-    const PLACE_BOTTOM_DIRECTION_DROPDOWN = 'bottom_direction_dropdown';
+    public const DISPLAY_FULL_TEXT = 'F';
+    public const DISPLAY_PARTIAL_TEXT = 'P';
 
-    const DISPLAY_FULL_TEXT = 'F';
-    const DISPLAY_PARTIAL_TEXT = 'P';
+    public const HEADER_FLIP_TYPE_AUTO = 'auto';
+    public const HEADER_FLIP_TYPE_CSS = 'css';
+    public const HEADER_FLIP_TYPE_FAKE = 'fake';
 
-    const HEADER_FLIP_TYPE_AUTO = 'auto';
-    const HEADER_FLIP_TYPE_CSS = 'css';
-    const HEADER_FLIP_TYPE_FAKE = 'fake';
+    public const DATE_FIELD = 'date';
+    public const DATETIME_FIELD = 'datetime';
+    public const TIMESTAMP_FIELD = 'timestamp';
+    public const TIME_FIELD = 'time';
+    public const STRING_FIELD = 'string';
+    public const GEOMETRY_FIELD = 'geometry';
+    public const BLOB_FIELD = 'BLOB';
+    public const BINARY_FIELD = 'BINARY';
 
-    const DATE_FIELD = 'date';
-    const DATETIME_FIELD = 'datetime';
-    const TIMESTAMP_FIELD = 'timestamp';
-    const TIME_FIELD = 'time';
-    const STRING_FIELD = 'string';
-    const GEOMETRY_FIELD = 'geometry';
-    const BLOB_FIELD = 'BLOB';
-    const BINARY_FIELD = 'BINARY';
+    public const RELATIONAL_KEY = 'K';
+    public const RELATIONAL_DISPLAY_COLUMN = 'D';
 
-    const RELATIONAL_KEY = 'K';
-    const RELATIONAL_DISPLAY_COLUMN = 'D';
+    public const GEOMETRY_DISP_GEOM = 'GEOM';
+    public const GEOMETRY_DISP_WKT = 'WKT';
+    public const GEOMETRY_DISP_WKB = 'WKB';
 
-    const GEOMETRY_DISP_GEOM = 'GEOM';
-    const GEOMETRY_DISP_WKT = 'WKT';
-    const GEOMETRY_DISP_WKB = 'WKB';
+    public const SMART_SORT_ORDER = 'SMART';
+    public const ASCENDING_SORT_DIR = 'ASC';
+    public const DESCENDING_SORT_DIR = 'DESC';
 
-    const SMART_SORT_ORDER = 'SMART';
-    const ASCENDING_SORT_DIR = 'ASC';
-    const DESCENDING_SORT_DIR = 'DESC';
+    public const TABLE_TYPE_INNO_DB = 'InnoDB';
+    public const ALL_ROWS = 'all';
+    public const QUERY_TYPE_SELECT = 'SELECT';
 
-    const TABLE_TYPE_INNO_DB = 'InnoDB';
-    const ALL_ROWS = 'all';
-    const QUERY_TYPE_SELECT = 'SELECT';
+    public const ROUTINE_PROCEDURE = 'procedure';
+    public const ROUTINE_FUNCTION = 'function';
 
-    const ROUTINE_PROCEDURE = 'procedure';
-    const ROUTINE_FUNCTION = 'function';
-
-    const ACTION_LINK_CONTENT_ICONS = 'icons';
-    const ACTION_LINK_CONTENT_TEXT = 'text';
-
+    public const ACTION_LINK_CONTENT_ICONS = 'icons';
+    public const ACTION_LINK_CONTENT_TEXT = 'text';
 
     // Declare global fields
 
-    /** array with properties of the class */
-    private $_property_array = array(
+    /** @var array<string, mixed> */
+    public $properties = [
+        /* integer server id */
+        'server' => null,
 
-        /** string Database name */
+        /* string Database name */
         'db' => null,
 
-        /** string Table name */
+        /* string Table name */
         'table' => null,
 
-        /** string the URL to go back in case of errors */
+        /* string the URL to go back in case of errors */
         'goto' => null,
 
-        /** string the SQL query */
+        /* string the SQL query */
         'sql_query' => null,
 
-        /**
+        /*
          * integer the total number of rows returned by the SQL query without any
          *         appended "LIMIT" clause programmatically
          */
         'unlim_num_rows' => null,
 
-        /** array meta information about fields */
+        /* array meta information about fields */
         'fields_meta' => null,
 
-        /** boolean */
+        /* boolean */
         'is_count' => null,
 
-        /** integer */
+        /* integer */
         'is_export' => null,
 
-        /** boolean */
+        /* boolean */
         'is_func' => null,
 
-        /** integer */
+        /* integer */
         'is_analyse' => null,
 
-        /** integer the total number of rows returned by the SQL query */
+        /* integer the total number of rows returned by the SQL query */
         'num_rows' => null,
 
-        /** integer the total number of fields returned by the SQL query */
+        /* integer the total number of fields returned by the SQL query */
         'fields_cnt' => null,
 
-        /** double time taken for execute the SQL query */
+        /* double time taken for execute the SQL query */
         'querytime' => null,
 
-        /** string path for theme images directory */
-        'pma_theme_image' => null,
+        /* string path for theme images directory */
+        'theme_image_path' => null,
 
-        /** string */
+        /* string */
         'text_dir' => null,
 
-        /** boolean */
+        /* boolean */
         'is_maint' => null,
 
-        /** boolean */
+        /* boolean */
         'is_explain' => null,
 
-        /** boolean */
+        /* boolean */
         'is_show' => null,
 
-        /** boolean */
+        /* boolean */
         'is_browse_distinct' => null,
 
-        /** array table definitions */
+        /* array table definitions */
         'showtable' => null,
 
-        /** string */
+        /* string */
         'printview' => null,
 
-        /** string URL query */
-        'url_query' => null,
-
-        /** array column names to highlight */
+        /* array column names to highlight */
         'highlight_columns' => null,
 
-        /** array holding various display information */
+        /* array holding various display information */
         'display_params' => null,
 
-        /** array mime types information of fields */
+        /* array mime types information of fields */
         'mime_map' => null,
 
-        /** boolean */
+        /* boolean */
         'editable' => null,
 
-        /** random unique ID to distinguish result set */
+        /* random unique ID to distinguish result set */
         'unique_id' => null,
 
-        /** where clauses for each row, each table in the row */
-        'whereClauseMap' => array(),
-    );
+        /* where clauses for each row, each table in the row */
+        'whereClauseMap' => [],
+    ];
 
     /**
      * This variable contains the column transformation information
      * for some of the system databases.
      * One element of this array represent all relevant columns in all tables in
      * one specific database
+     *
+     * @var array
      */
-    public $transformation_info;
+    public $transformationInfo;
 
-    /**
-     * @var Relation $relation
-     */
+    /** @var Relation */
     private $relation;
 
-    /**
-     * Get any property of this class
-     *
-     * @param string $property name of the property
-     *
-     * @return mixed|void if property exist, value of the relevant property
-     */
-    public function __get($property)
-    {
-        if (array_key_exists($property, $this->_property_array)) {
-            return $this->_property_array[$property];
-        }
-    }
+    /** @var Transformations */
+    private $transformations;
+
+    /** @var Template */
+    public $template;
 
     /**
-     * Set values for any property of this class
-     *
-     * @param string $property name of the property
-     * @param mixed  $value    value to set
-     *
-     * @return void
-     */
-    public function __set($property, $value)
-    {
-        if (array_key_exists($property, $this->_property_array)) {
-            $this->_property_array[$property] = $value;
-        }
-    }
-
-    /**
-     * Constructor for PhpMyAdmin\Display\Results class
-     *
      * @param string $db        the database name
      * @param string $table     the table name
+     * @param int    $server    the server id
      * @param string $goto      the URL to go back in case of errors
      * @param string $sql_query the SQL query
      *
-     * @access  public
+     * @access public
      */
-    public function __construct($db, $table, $goto, $sql_query)
+    public function __construct($db, $table, $server, $goto, $sql_query)
     {
-        $this->relation = new Relation();
+        global $dbi;
 
-        $this->_setDefaultTransformations();
+        $this->relation = new Relation($dbi);
+        $this->transformations = new Transformations();
+        $this->template = new Template();
 
-        $this->__set('db', $db);
-        $this->__set('table', $table);
-        $this->__set('goto', $goto);
-        $this->__set('sql_query', $sql_query);
-        $this->__set('unique_id', rand());
+        $this->setDefaultTransformations();
+
+        $this->properties['db'] = $db;
+        $this->properties['table'] = $table;
+        $this->properties['server'] = $server;
+        $this->properties['goto'] = $goto;
+        $this->properties['sql_query'] = $sql_query;
+        $this->properties['unique_id'] = mt_rand();
     }
 
     /**
@@ -247,201 +266,177 @@ class Results
      *
      * @return void
      */
-    private function _setDefaultTransformations()
+    private function setDefaultTransformations()
     {
-        $json_highlighting_data = array(
+        $json_highlighting_data = [
             'libraries/classes/Plugins/Transformations/Output/Text_Plain_Json.php',
-            'PhpMyAdmin\Plugins\Transformations\Output\Text_Plain_Json',
-            'Text_Plain'
-        );
-        $sql_highlighting_data = array(
+            Text_Plain_Json::class,
+            'Text_Plain',
+        ];
+        $sql_highlighting_data = [
             'libraries/classes/Plugins/Transformations/Output/Text_Plain_Sql.php',
-            'PhpMyAdmin\Plugins\Transformations\Output\Text_Plain_Sql',
-            'Text_Plain'
-        );
-        $blob_sql_highlighting_data = array(
+            Text_Plain_Sql::class,
+            'Text_Plain',
+        ];
+        $blob_sql_highlighting_data = [
             'libraries/classes/Plugins/Transformations/Output/Text_Octetstream_Sql.php',
-            'PhpMyAdmin\Plugins\Transformations\Output\Text_Octetstream_Sql',
-            'Text_Octetstream'
-        );
-        $link_data = array(
+            Text_Octetstream_Sql::class,
+            'Text_Octetstream',
+        ];
+        $link_data = [
             'libraries/classes/Plugins/Transformations/Text_Plain_Link.php',
-            'PhpMyAdmin\Plugins\Transformations\Text_Plain_Link',
-            'Text_Plain'
-        );
-        $this->transformation_info = array(
-            'information_schema' => array(
-                'events' => array(
-                    'event_definition' => $sql_highlighting_data
-                ),
-                'processlist' => array(
-                    'info' => $sql_highlighting_data
-                ),
-                'routines' => array(
-                    'routine_definition' => $sql_highlighting_data
-                ),
-                'triggers' => array(
-                    'action_statement' => $sql_highlighting_data
-                ),
-                'views' => array(
-                    'view_definition' => $sql_highlighting_data
-                )
-            ),
-            'mysql' => array(
-                'event' => array(
+            Text_Plain_Link::class,
+            'Text_Plain',
+        ];
+        $this->transformationInfo = [
+            'information_schema' => [
+                'events' => ['event_definition' => $sql_highlighting_data],
+                'processlist' => ['info' => $sql_highlighting_data],
+                'routines' => ['routine_definition' => $sql_highlighting_data],
+                'triggers' => ['action_statement' => $sql_highlighting_data],
+                'views' => ['view_definition' => $sql_highlighting_data],
+            ],
+            'mysql' => [
+                'event' => [
                     'body' => $blob_sql_highlighting_data,
-                    'body_utf8' => $blob_sql_highlighting_data
-                ),
-                'general_log' => array(
-                    'argument' => $sql_highlighting_data
-                ),
-                'help_category' => array(
-                    'url' => $link_data
-                ),
-                'help_topic' => array(
+                    'body_utf8' => $blob_sql_highlighting_data,
+                ],
+                'general_log' => ['argument' => $sql_highlighting_data],
+                'help_category' => ['url' => $link_data],
+                'help_topic' => [
                     'example' => $sql_highlighting_data,
-                    'url' => $link_data
-                ),
-                'proc' => array(
+                    'url' => $link_data,
+                ],
+                'proc' => [
                     'param_list' => $blob_sql_highlighting_data,
                     'returns' => $blob_sql_highlighting_data,
                     'body' => $blob_sql_highlighting_data,
-                    'body_utf8' => $blob_sql_highlighting_data
-                ),
-                'slow_log' => array(
-                    'sql_text' => $sql_highlighting_data
-                )
-            )
-        );
+                    'body_utf8' => $blob_sql_highlighting_data,
+                ],
+                'slow_log' => ['sql_text' => $sql_highlighting_data],
+            ],
+        ];
 
         $cfgRelation = $this->relation->getRelationsParam();
-        if ($cfgRelation['db']) {
-            $this->transformation_info[$cfgRelation['db']] = array();
-            $relDb = &$this->transformation_info[$cfgRelation['db']];
-            if (! empty($cfgRelation['history'])) {
-                $relDb[$cfgRelation['history']] = array(
-                    'sqlquery' => $sql_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['bookmark'])) {
-                $relDb[$cfgRelation['bookmark']] = array(
-                    'query' => $sql_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['tracking'])) {
-                $relDb[$cfgRelation['tracking']] = array(
-                    'schema_sql' => $sql_highlighting_data,
-                    'data_sql' => $sql_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['favorite'])) {
-                $relDb[$cfgRelation['favorite']] = array(
-                    'tables' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['recent'])) {
-                $relDb[$cfgRelation['recent']] = array(
-                    'tables' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['savedsearches'])) {
-                $relDb[$cfgRelation['savedsearches']] = array(
-                    'search_data' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['designer_settings'])) {
-                $relDb[$cfgRelation['designer_settings']] = array(
-                    'settings_data' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['table_uiprefs'])) {
-                $relDb[$cfgRelation['table_uiprefs']] = array(
-                    'prefs' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['userconfig'])) {
-                $relDb[$cfgRelation['userconfig']] = array(
-                    'config_data' => $json_highlighting_data
-                );
-            }
-            if (! empty($cfgRelation['export_templates'])) {
-                $relDb[$cfgRelation['export_templates']] = array(
-                    'template_data' => $json_highlighting_data
-                );
-            }
+        if (! $cfgRelation['db']) {
+            return;
         }
+
+        $this->transformationInfo[$cfgRelation['db']] = [];
+        $relDb = &$this->transformationInfo[$cfgRelation['db']];
+        if (! empty($cfgRelation['history'])) {
+            $relDb[$cfgRelation['history']] = ['sqlquery' => $sql_highlighting_data];
+        }
+        if (! empty($cfgRelation['bookmark'])) {
+            $relDb[$cfgRelation['bookmark']] = ['query' => $sql_highlighting_data];
+        }
+        if (! empty($cfgRelation['tracking'])) {
+            $relDb[$cfgRelation['tracking']] = [
+                'schema_sql' => $sql_highlighting_data,
+                'data_sql' => $sql_highlighting_data,
+            ];
+        }
+        if (! empty($cfgRelation['favorite'])) {
+            $relDb[$cfgRelation['favorite']] = ['tables' => $json_highlighting_data];
+        }
+        if (! empty($cfgRelation['recent'])) {
+            $relDb[$cfgRelation['recent']] = ['tables' => $json_highlighting_data];
+        }
+        if (! empty($cfgRelation['savedsearches'])) {
+            $relDb[$cfgRelation['savedsearches']] = ['search_data' => $json_highlighting_data];
+        }
+        if (! empty($cfgRelation['designer_settings'])) {
+            $relDb[$cfgRelation['designer_settings']] = ['settings_data' => $json_highlighting_data];
+        }
+        if (! empty($cfgRelation['table_uiprefs'])) {
+            $relDb[$cfgRelation['table_uiprefs']] = ['prefs' => $json_highlighting_data];
+        }
+        if (! empty($cfgRelation['userconfig'])) {
+            $relDb[$cfgRelation['userconfig']] = ['config_data' => $json_highlighting_data];
+        }
+        if (empty($cfgRelation['export_templates'])) {
+            return;
+        }
+
+        $relDb[$cfgRelation['export_templates']] = ['template_data' => $json_highlighting_data];
     }
 
     /**
      * Set properties which were not initialized at the constructor
      *
-     * @param integer $unlim_num_rows the total number of rows returned by
-     *                                     the SQL query without any appended
-     *                                     "LIMIT" clause programmatically
-     * @param array   $fields_meta    meta information about fields
-     * @param boolean $is_count       statement is SELECT COUNT
-     * @param integer $is_export      statement contains INTO OUTFILE
-     * @param boolean $is_func        statement contains a function like SUM()
-     * @param integer $is_analyse     statement contains PROCEDURE ANALYSE
-     * @param integer $num_rows       total no. of rows returned by SQL query
-     * @param integer $fields_cnt     total no.of fields returned by SQL query
-     * @param double  $querytime      time taken for execute the SQL query
-     * @param string  $pmaThemeImage  path for theme images directory
-     * @param string  $text_dir       text direction
-     * @param boolean $is_maint       statement contains a maintenance command
-     * @param boolean $is_explain     statement contains EXPLAIN
-     * @param boolean $is_show        statement contains SHOW
-     * @param array   $showtable      table definitions
-     * @param string  $printview      print view was requested
-     * @param string  $url_query      URL query
-     * @param boolean $editable       whether the results set is editable
-     * @param boolean $is_browse_dist whether browsing distinct values
+     * @param int      $unlim_num_rows the total number of rows returned by
+     *                                 the SQL query without any appended
+     *                                 "LIMIT" clause programmatically
+     * @param stdClass $fields_meta    meta information about fields
+     * @param bool     $is_count       statement is SELECT COUNT
+     * @param int      $is_export      statement contains INTO OUTFILE
+     * @param bool     $is_func        statement contains a function like SUM()
+     * @param int      $is_analyse     statement contains PROCEDURE ANALYSE
+     * @param int      $num_rows       total no. of rows returned by SQL query
+     * @param int      $fields_cnt     total no.of fields returned by SQL query
+     * @param double   $querytime      time taken for execute the SQL query
+     * @param string   $themeImagePath path for theme images directory
+     * @param string   $text_dir       text direction
+     * @param bool     $is_maint       statement contains a maintenance command
+     * @param bool     $is_explain     statement contains EXPLAIN
+     * @param bool     $is_show        statement contains SHOW
+     * @param array    $showtable      table definitions
+     * @param string   $printview      print view was requested
+     * @param bool     $editable       whether the results set is editable
+     * @param bool     $is_browse_dist whether browsing distinct values
      *
      * @return void
-     *
-     * @see     sql.php
      */
     public function setProperties(
-        $unlim_num_rows, $fields_meta, $is_count, $is_export, $is_func,
-        $is_analyse, $num_rows, $fields_cnt, $querytime, $pmaThemeImage, $text_dir,
-        $is_maint, $is_explain, $is_show, $showtable, $printview, $url_query,
-        $editable, $is_browse_dist
+        $unlim_num_rows,
+        $fields_meta,
+        $is_count,
+        $is_export,
+        $is_func,
+        $is_analyse,
+        $num_rows,
+        $fields_cnt,
+        $querytime,
+        $themeImagePath,
+        $text_dir,
+        $is_maint,
+        $is_explain,
+        $is_show,
+        $showtable,
+        $printview,
+        $editable,
+        $is_browse_dist
     ) {
-
-        $this->__set('unlim_num_rows', $unlim_num_rows);
-        $this->__set('fields_meta', $fields_meta);
-        $this->__set('is_count', $is_count);
-        $this->__set('is_export', $is_export);
-        $this->__set('is_func', $is_func);
-        $this->__set('is_analyse', $is_analyse);
-        $this->__set('num_rows', $num_rows);
-        $this->__set('fields_cnt', $fields_cnt);
-        $this->__set('querytime', $querytime);
-        $this->__set('pma_theme_image', $pmaThemeImage);
-        $this->__set('text_dir', $text_dir);
-        $this->__set('is_maint', $is_maint);
-        $this->__set('is_explain', $is_explain);
-        $this->__set('is_show', $is_show);
-        $this->__set('showtable', $showtable);
-        $this->__set('printview', $printview);
-        $this->__set('url_query', $url_query);
-        $this->__set('editable', $editable);
-        $this->__set('is_browse_distinct', $is_browse_dist);
-
-    } // end of the 'setProperties()' function
-
+        $this->properties['unlim_num_rows'] = $unlim_num_rows;
+        $this->properties['fields_meta'] = $fields_meta;
+        $this->properties['is_count'] = $is_count;
+        $this->properties['is_export'] = $is_export;
+        $this->properties['is_func'] = $is_func;
+        $this->properties['is_analyse'] = $is_analyse;
+        $this->properties['num_rows'] = $num_rows;
+        $this->properties['fields_cnt'] = $fields_cnt;
+        $this->properties['querytime'] = $querytime;
+        $this->properties['theme_image_path'] = $themeImagePath;
+        $this->properties['text_dir'] = $text_dir;
+        $this->properties['is_maint'] = $is_maint;
+        $this->properties['is_explain'] = $is_explain;
+        $this->properties['is_show'] = $is_show;
+        $this->properties['showtable'] = $showtable;
+        $this->properties['printview'] = $printview;
+        $this->properties['editable'] = $editable;
+        $this->properties['is_browse_distinct'] = $is_browse_dist;
+    }
 
     /**
      * Defines the parts to display for a print view
      *
      * @param array $displayParts the parts to display
      *
-     * @return array $displayParts the modified display parts
+     * @return array the modified display parts
      *
-     * @access  private
-     *
+     * @access private
      */
-    private function _setDisplayPartsForPrintView(array $displayParts)
+    private function setDisplayPartsForPrintView(array $displayParts)
     {
         // set all elements to false!
         $displayParts['edit_lnk']  = self::NO_EDIT_OR_DELETE; // no edit link
@@ -460,18 +455,18 @@ class Results
      *
      * @param array $displayParts the parts to display
      *
-     * @return array $displayParts the modified display parts
+     * @return array the modified display parts
      *
-     * @access  private
-     *
+     * @access private
      */
-    private function _setDisplayPartsForShow(array $displayParts)
+    private function setDisplayPartsForShow(array $displayParts)
     {
         preg_match(
             '@^SHOW[[:space:]]+(VARIABLES|(FULL[[:space:]]+)?'
             . 'PROCESSLIST|STATUS|TABLE|GRANTS|CREATE|LOGS|DATABASES|FIELDS'
             . ')@i',
-            $this->__get('sql_query'), $which
+            $this->properties['sql_query'],
+            $which
         );
 
         $bIsProcessList = isset($which[1]);
@@ -508,12 +503,11 @@ class Results
      *
      * @param array $displayParts the parts to display
      *
-     * @return array $displayParts the modified display parts
+     * @return array the modified display parts
      *
-     * @access  private
-     *
+     * @access private
      */
-    private function _setDisplayPartsForNonData(array $displayParts)
+    private function setDisplayPartsForNonData(array $displayParts)
     {
         // Statement is a "SELECT COUNT", a
         // "CHECK/ANALYZE/REPAIR/OPTIMIZE/CHECKSUM", an "EXPLAIN" one or
@@ -524,7 +518,7 @@ class Results
         $displayParts['nav_bar']   = (string) '0';
         $displayParts['bkm_form']  = (string) '1';
 
-        if ($this->__get('is_maint')) {
+        if ($this->properties['is_maint']) {
             $displayParts['text_btn']  = (string) '1';
         } else {
             $displayParts['text_btn']  = (string) '0';
@@ -539,24 +533,22 @@ class Results
      *
      * @param array $displayParts the parts to display
      *
-     * @return array $displayParts the modified display parts
+     * @return array the modified display parts
      *
-     * @access  private
-     *
+     * @access private
      */
-    private function _setDisplayPartsForSelect(array $displayParts)
+    private function setDisplayPartsForSelect(array $displayParts)
     {
         // Other statements (ie "SELECT" ones) -> updates
         // $displayParts['edit_lnk'], $displayParts['del_lnk'] and
         // $displayParts['text_btn'] (keeps other default values)
 
-        $fields_meta = $this->__get('fields_meta');
+        $fields_meta = $this->properties['fields_meta'];
         $prev_table = '';
         $displayParts['text_btn']  = (string) '1';
-        $number_of_columns = $this->__get('fields_cnt');
+        $number_of_columns = $this->properties['fields_cnt'];
 
         for ($i = 0; $i < $number_of_columns; $i++) {
-
             $is_link = ($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
                 || ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)
                 || ($displayParts['sort_lnk'] != '0');
@@ -578,14 +570,16 @@ class Results
                 if ($displayParts['text_btn'] == '1') {
                     break;
                 }
-            } // end if
+            }
 
             // Always display print view link
             $displayParts['pview_lnk'] = (string) '1';
-            if ($fields_meta[$i]->table != '') {
-                $prev_table = $fields_meta[$i]->table;
+            if ($fields_meta[$i]->table == '') {
+                continue;
             }
-        } // end for
+
+            $prev_table = $fields_meta[$i]->table;
+        }
 
         if ($prev_table == '') { // no table for any of the columns
             // don't display links
@@ -600,6 +594,8 @@ class Results
      * Defines the parts to display for the results of a SQL query
      * and the total number of rows
      *
+     * @see     getTable()
+     *
      * @param array $displayParts the parts to display (see a few
      *                            lines above for explanations)
      *
@@ -610,52 +606,48 @@ class Results
      *               LIMIT clause (just a copy of $unlim_num_rows if it exists,
      *               else computed inside this function)
      *
-     *
-     * @access  private
-     *
-     * @see     getTable()
+     * @access private
      */
-    private function _setDisplayPartsAndTotal(array $displayParts)
+    private function setDisplayPartsAndTotal(array $displayParts)
     {
+        global $dbi;
+
         $the_total = 0;
 
         // 1. Following variables are needed for use in isset/empty or
         //    use with array indexes or safe use in foreach
-        $db = $this->__get('db');
-        $table = $this->__get('table');
-        $unlim_num_rows = $this->__get('unlim_num_rows');
-        $num_rows = $this->__get('num_rows');
-        $printview = $this->__get('printview');
+        $db = $this->properties['db'];
+        $table = $this->properties['table'];
+        $unlim_num_rows = $this->properties['unlim_num_rows'];
+        $num_rows = $this->properties['num_rows'];
+        $printview = $this->properties['printview'];
 
         // 2. Updates the display parts
         if ($printview == '1') {
-            $displayParts = $this->_setDisplayPartsForPrintView($displayParts);
-
-        } elseif ($this->__get('is_count') || $this->__get('is_analyse')
-            || $this->__get('is_maint') || $this->__get('is_explain')
+            $displayParts = $this->setDisplayPartsForPrintView($displayParts);
+        } elseif ($this->properties['is_count'] || $this->properties['is_analyse']
+            || $this->properties['is_maint'] || $this->properties['is_explain']
         ) {
-            $displayParts = $this->_setDisplayPartsForNonData($displayParts);
-
-        } elseif ($this->__get('is_show')) {
-            $displayParts = $this->_setDisplayPartsForShow($displayParts);
-
+            $displayParts = $this->setDisplayPartsForNonData($displayParts);
+        } elseif ($this->properties['is_show']) {
+            $displayParts = $this->setDisplayPartsForShow($displayParts);
         } else {
-            $displayParts = $this->_setDisplayPartsForSelect($displayParts);
-        } // end if..elseif...else
+            $displayParts = $this->setDisplayPartsForSelect($displayParts);
+        }
 
         // 3. Gets the total number of rows if it is unknown
         if (isset($unlim_num_rows) && $unlim_num_rows != '') {
             $the_total = $unlim_num_rows;
-        } elseif ((($displayParts['nav_bar'] == '1')
-            || ($displayParts['sort_lnk'] == '1'))
+        } elseif (($displayParts['nav_bar'] == '1')
+            || ($displayParts['sort_lnk'] == '1')
             && (strlen($db) > 0 && strlen($table) > 0)
         ) {
-            $the_total = $GLOBALS['dbi']->getTable($db, $table)->countRecords();
+            $the_total = $dbi->getTable($db, $table)->countRecords();
         }
 
         // if for COUNT query, number of rows returned more than 1
         // (may be being used GROUP BY)
-        if ($this->__get('is_count') && isset($num_rows) && $num_rows > 1) {
+        if ($this->properties['is_count'] && isset($num_rows) && $num_rows > 1) {
             $displayParts['nav_bar']   = (string) '1';
             $displayParts['sort_lnk']  = (string) '1';
         }
@@ -663,7 +655,6 @@ class Results
         //    displayed but there is only one row, change these settings to
         //    false
         if ($displayParts['nav_bar'] == '1' || $displayParts['sort_lnk'] == '1') {
-
             // - Do not display sort links if less than 2 rows.
             // - For a VIEW we (probably) did not count the number of rows
             //   so don't test this number here, it would remove the possibility
@@ -675,58 +666,58 @@ class Results
             ) {
                 $displayParts['sort_lnk'] = (string) '0';
             }
-        } // end if (3)
+        }
 
-        return array($displayParts, $the_total);
-
-    } // end of the 'setDisplayPartsAndTotal()' function
-
+        return [
+            $displayParts,
+            $the_total,
+        ];
+    }
 
     /**
      * Return true if we are executing a query in the form of
      * "SELECT * FROM <a table> ..."
      *
+     * @see getTableHeaders(), getColumnParams()
+     *
      * @param array $analyzed_sql_results analyzed sql results
      *
-     * @return boolean
+     * @return bool
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders(), _getColumnParams()
+     * @access private
      */
-    private function _isSelect(array $analyzed_sql_results)
+    private function isSelect(array $analyzed_sql_results)
     {
-        return ! ($this->__get('is_count')
-                || $this->__get('is_export')
-                || $this->__get('is_func')
-                || $this->__get('is_analyse'))
-            && !empty($analyzed_sql_results['select_from'])
-            && !empty($analyzed_sql_results['statement']->from)
-            && (count($analyzed_sql_results['statement']->from) == 1)
-            && !empty($analyzed_sql_results['statement']->from[0]->table);
+        return ! ($this->properties['is_count']
+                || $this->properties['is_export']
+                || $this->properties['is_func']
+                || $this->properties['is_analyse'])
+            && ! empty($analyzed_sql_results['select_from'])
+            && ! empty($analyzed_sql_results['statement']->from)
+            && (count($analyzed_sql_results['statement']->from) === 1)
+            && ! empty($analyzed_sql_results['statement']->from[0]->table);
     }
-
 
     /**
      * Get a navigation button
      *
-     * @param string  $caption            iconic caption for button
-     * @param string  $title              text for button
-     * @param integer $pos                position for next query
-     * @param string  $html_sql_query     query ready for display
-     * @param boolean $back               whether 'begin' or 'previous'
-     * @param string  $onsubmit           optional onsubmit clause
-     * @param string  $input_for_real_end optional hidden field for special treatment
-     * @param string  $onclick            optional onclick clause
+     * @see     getMoveBackwardButtonsForTableNavigation(),
+     *          getMoveForwardButtonsForTableNavigation()
+     *
+     * @param string $caption            iconic caption for button
+     * @param string $title              text for button
+     * @param int    $pos                position for next query
+     * @param string $html_sql_query     query ready for display
+     * @param bool   $back               whether 'begin' or 'previous'
+     * @param string $onsubmit           optional onsubmit clause
+     * @param string $input_for_real_end optional hidden field for special treatment
+     * @param string $onclick            optional onclick clause
      *
      * @return string                     html content
      *
-     * @access  private
-     *
-     * @see     _getMoveBackwardButtonsForTableNavigation(),
-     *          _getMoveForwardButtonsForTableNavigation()
+     * @access private
      */
-    private function _getTableNavigationButton(
+    private function getTableNavigationButton(
         $caption,
         $title,
         $pos,
@@ -753,13 +744,13 @@ class Results
             }
         }
 
-        return Template::get('display/results/table_navigation_button')->render([
-            'db' => $this->__get('db'),
-            'table' => $this->__get('table'),
+        return $this->template->render('display/results/table_navigation_button', [
+            'db' => $this->properties['db'],
+            'table' => $this->properties['table'],
             'sql_query' => $html_sql_query,
             'pos' => $pos,
-            'is_browse_distinct' => $this->__get('is_browse_distinct'),
-            'goto' => $this->__get('goto'),
+            'is_browse_distinct' => $this->properties['is_browse_distinct'],
+            'goto' => $this->properties['goto'],
             'input_for_real_end' => $input_for_real_end,
             'caption_output' => $caption_output,
             'title' => $title,
@@ -771,286 +762,182 @@ class Results
     /**
      * Possibly return a page selector for table navigation
      *
-     * @param string $table_navigation_html the current navigation HTML
+     * @return array ($output, $nbTotalPage)
      *
-     * @return array ($table_navigation_html, $nbTotalPage)
-     *
-     * @access  private
-     *
+     * @access private
      */
-    private function _getHtmlPageSelector($table_navigation_html)
+    private function getHtmlPageSelector(): array
     {
-        $pageNow = @floor(
+        $pageNow = (int) floor(
             $_SESSION['tmpval']['pos']
             / $_SESSION['tmpval']['max_rows']
         ) + 1;
 
-        $nbTotalPage = @ceil(
-            $this->__get('unlim_num_rows')
+        $nbTotalPage = (int) ceil(
+            $this->properties['unlim_num_rows']
             / $_SESSION['tmpval']['max_rows']
         );
 
+        $output = '';
         if ($nbTotalPage > 1) {
-            $table_navigation_html .= '<td>';
-            $_url_params = array(
-                'db'                 => $this->__get('db'),
-                'table'              => $this->__get('table'),
-                'sql_query'          => $this->__get('sql_query'),
-                'goto'               => $this->__get('goto'),
-                'is_browse_distinct' => $this->__get('is_browse_distinct'),
-            );
+            $_url_params = [
+                'db'                 => $this->properties['db'],
+                'table'              => $this->properties['table'],
+                'sql_query'          => $this->properties['sql_query'],
+                'goto'               => $this->properties['goto'],
+                'is_browse_distinct' => $this->properties['is_browse_distinct'],
+            ];
 
-            //<form> to keep the form alignment of button < and <<
-            // and also to know what to execute when the selector changes
-            $table_navigation_html .= '<form action="sql.php" method="post">';
-            $table_navigation_html .= Url::getHiddenInputs($_url_params);
-
-            $table_navigation_html .= Util::pageselector(
-                'pos',
-                $_SESSION['tmpval']['max_rows'],
-                $pageNow, $nbTotalPage, 200, 5, 5, 20, 10
-            );
-
-            $table_navigation_html .= '</form>'
-                . '</td>';
+            $output = $this->template->render('display/results/page_selector', [
+                'url_params' => $_url_params,
+                'page_selector' => Util::pageselector(
+                    'pos',
+                    $_SESSION['tmpval']['max_rows'],
+                    $pageNow,
+                    $nbTotalPage,
+                    200,
+                    5,
+                    5,
+                    20,
+                    10
+                ),
+            ]);
         }
-        return array($table_navigation_html, $nbTotalPage);
+
+        return [
+            $output,
+            $nbTotalPage,
+        ];
     }
 
     /**
      * Get a navigation bar to browse among the results of a SQL query
      *
-     * @param integer $pos_next         the offset for the "next" page
-     * @param integer $pos_prev         the offset for the "previous" page
-     * @param boolean $is_innodb        whether its InnoDB or not
-     * @param string  $sort_by_key_html the sort by key dialog
+     * @see getTable()
      *
-     * @return string                            html content
+     * @param int    $posNext       the offset for the "next" page
+     * @param int    $posPrevious   the offset for the "previous" page
+     * @param bool   $isInnodb      whether its InnoDB or not
+     * @param string $sortByKeyHtml the sort by key dialog
      *
-     * @access  private
-     *
-     * @see     _getTable()
+     * @return array
      */
-    private function _getTableNavigation(
-        $pos_next, $pos_prev, $is_innodb, $sort_by_key_html
-    ) {
-
-        $table_navigation_html = '';
-
-        // here, using htmlentities() would cause problems if the query
-        // contains accented characters
-        $html_sql_query = htmlspecialchars($this->__get('sql_query'));
-
-        // Navigation bar
-        $table_navigation_html
-            .= '<table class="navigation nospacing nopadding print_ignore">'
-            . '<tr>'
-            . '<td class="navigation_separator"></td>';
+    private function getTableNavigation(
+        $posNext,
+        $posPrevious,
+        $isInnodb,
+        $sortByKeyHtml
+    ): array {
+        $isShowingAll = $_SESSION['tmpval']['max_rows'] === self::ALL_ROWS;
 
         // Move to the beginning or to the previous page
-        if ($_SESSION['tmpval']['pos']
-            && ($_SESSION['tmpval']['max_rows'] != self::ALL_ROWS)
-        ) {
-
-            $table_navigation_html
-                .= $this->_getMoveBackwardButtonsForTableNavigation(
-                    $html_sql_query, $pos_prev
-                );
-
-        } // end move back
-
-        $nbTotalPage = 1;
-        //page redirection
-        // (unless we are showing all records)
-        if ($_SESSION['tmpval']['max_rows'] != self::ALL_ROWS) {
-            list(
-                $table_navigation_html,
-                $nbTotalPage
-            ) = $this->_getHtmlPageSelector($table_navigation_html);
+        $moveBackwardButtons = '';
+        if ($_SESSION['tmpval']['pos'] && ! $isShowingAll) {
+            $moveBackwardButtons = $this->getMoveBackwardButtonsForTableNavigation(
+                htmlspecialchars($this->properties['sql_query']),
+                $posPrevious
+            );
         }
 
-        $showing_all = false;
-        if ($_SESSION['tmpval']['max_rows'] == self::ALL_ROWS) {
-            $showing_all = true;
+        $pageSelector = '';
+        $numberTotalPage = 1;
+        if (! $isShowingAll) {
+            [
+                $pageSelector,
+                $numberTotalPage,
+            ] = $this->getHtmlPageSelector();
         }
 
         // Move to the next page or to the last one
-        if ($this->__get('unlim_num_rows') === false // view with unknown number of rows
-            || ($_SESSION['tmpval']['max_rows'] != self::ALL_ROWS
-            && $_SESSION['tmpval']['pos'] + $_SESSION['tmpval']['max_rows'] < $this->__get('unlim_num_rows')
-            && $this->__get('num_rows') >= $_SESSION['tmpval']['max_rows'])
+        $moveForwardButtons = '';
+        if ($this->properties['unlim_num_rows'] === false // view with unknown number of rows
+            || (! $isShowingAll
+            && $_SESSION['tmpval']['pos'] + $_SESSION['tmpval']['max_rows'] < $this->properties['unlim_num_rows']
+            && $this->properties['num_rows'] >= $_SESSION['tmpval']['max_rows'])
         ) {
-
-            $table_navigation_html
-                .= $this->_getMoveForwardButtonsForTableNavigation(
-                    $html_sql_query, $pos_next, $is_innodb
-                );
-
-        } // end move toward
-
-        // show separator if pagination happen
-        if ($nbTotalPage > 1) {
-            $table_navigation_html
-                .= '<td><div class="navigation_separator">|</div></td>';
+            $moveForwardButtons = $this->getMoveForwardButtonsForTableNavigation(
+                htmlspecialchars($this->properties['sql_query']),
+                $posNext,
+                $isInnodb
+            );
         }
 
-        // Display the "Show all" button if allowed
-        if ($GLOBALS['cfg']['ShowAll'] || ($this->__get('unlim_num_rows') <= 500) ) {
+        $hiddenFields = [
+            'db' => $this->properties['db'],
+            'table' => $this->properties['table'],
+            'server' => $this->properties['server'],
+            'sql_query' => $this->properties['sql_query'],
+            'is_browse_distinct' => $this->properties['is_browse_distinct'],
+            'goto' => $this->properties['goto'],
+        ];
 
-            $table_navigation_html .= $this->_getShowAllCheckboxForTableNavigation(
-                $showing_all, $html_sql_query
-            );
-
-            $table_navigation_html
-                .= '<td><div class="navigation_separator">|</div></td>';
-
-        } // end show all
-
-        $table_navigation_html .= '<td>'
-            . '<div class="save_edited hide">'
-            . '<input type="submit" value="' . __('Save edited data') . '" />'
-            . '<div class="navigation_separator">|</div>'
-            . '</div>'
-            . '</td>'
-            . '<td>'
-            . '<div class="restore_column hide">'
-            . '<input type="submit" value="' . __('Restore column order') . '" />'
-            . '<div class="navigation_separator">|</div>'
-            . '</div>'
-            . '</td>';
-
-        // if displaying a VIEW, $unlim_num_rows could be zero because
-        // of $cfg['MaxExactCountViews']; in this case, avoid passing
-        // the 5th parameter to checkFormElementInRange()
-        // (this means we can't validate the upper limit
-        $table_navigation_html .= '<td class="navigation_goto">';
-
-        $table_navigation_html .= '<form action="sql.php" method="post" '
-            . 'onsubmit="return '
-                . '(checkFormElementInRange('
-                    . 'this, '
-                    . '\'session_max_rows\', '
-                    . '\''
-                    . str_replace('\'', '\\\'', __('%d is not valid row number.'))
-                    . '\', '
-                    . '1)'
-                . ' &amp;&amp; '
-                . 'checkFormElementInRange('
-                    . 'this, '
-                    . '\'pos\', '
-                    . '\''
-                    . str_replace('\'', '\\\'', __('%d is not valid row number.'))
-                    . '\', '
-                    . '0'
-                    . (($this->__get('unlim_num_rows') > 0)
-                        ? ', ' . ($this->__get('unlim_num_rows') - 1)
-                        : ''
-                    )
-                    . ')'
-                . ')'
-            . '">';
-
-        $table_navigation_html .= Url::getHiddenInputs(
-            $this->__get('db'), $this->__get('table')
-        );
-
-        $table_navigation_html .= $this->_getAdditionalFieldsForTableNavigation(
-            $html_sql_query
-        );
-
-        $table_navigation_html .= '</form>'
-            . '</td>'
-            . '<td class="navigation_separator"></td>'
-            . '<td class="largescreenonly">'
-            . '<span>' . __('Filter rows') . ':</span>'
-            . '<input type="text" class="filter_rows"'
-            . ' placeholder="' . __('Search this table') . '"'
-            . ' data-for="' . $this->__get('unique_id') . '" />'
-            . '</td>';
-
-        $table_navigation_html .= '<td class="largescreenonly">' . $sort_by_key_html . '</td>';
-
-        $table_navigation_html .= '<td class="navigation_separator"></td>'
-            . '</tr>'
-            . '</table>';
-
-        return $table_navigation_html;
-
-    } // end of the '_getTableNavigation()' function
-
+        return [
+            'move_backward_buttons' => $moveBackwardButtons,
+            'page_selector' => $pageSelector,
+            'move_forward_buttons' => $moveForwardButtons,
+            'number_total_page' => $numberTotalPage,
+            'has_show_all' => $GLOBALS['cfg']['ShowAll'] || ($this->properties['unlim_num_rows'] <= 500),
+            'hidden_fields' => $hiddenFields,
+            'session_max_rows' => $isShowingAll ? $GLOBALS['cfg']['MaxRows'] : 'all',
+            'is_showing_all' => $isShowingAll,
+            'max_rows' => $_SESSION['tmpval']['max_rows'],
+            'pos' => $_SESSION['tmpval']['pos'],
+            'sort_by_key' => $sortByKeyHtml,
+        ];
+    }
 
     /**
      * Prepare move backward buttons - previous and first
      *
-     * @param string  $html_sql_query the sql encoded by html special characters
-     * @param integer $pos_prev       the offset for the "previous" page
+     * @see getTableNavigation()
      *
-     * @return  string                  html content
-     *
-     * @access  private
-     *
-     * @see     _getTableNavigation()
-     */
-    private function _getMoveBackwardButtonsForTableNavigation(
-        $html_sql_query, $pos_prev
-    ) {
-        return $this->_getTableNavigationButton(
-            '&lt;&lt;', _pgettext('First page', 'Begin'), 0, $html_sql_query, true
-        )
-        . $this->_getTableNavigationButton(
-            '&lt;', _pgettext('Previous page', 'Previous'), $pos_prev,
-            $html_sql_query, true
-        );
-    } // end of the '_getMoveBackwardButtonsForTableNavigation()' function
-
-
-    /**
-     * Prepare Show All checkbox for table navigation
-     *
-     * @param bool   $showing_all    whether all rows are shown currently
      * @param string $html_sql_query the sql encoded by html special characters
+     * @param int    $pos_prev       the offset for the "previous" page
      *
-     * @return  string                          html content
+     * @return string                 html content
      *
-     * @access  private
-     *
-     * @see     _getTableNavigation()
+     * @access private
      */
-    private function _getShowAllCheckboxForTableNavigation(
-        $showing_all, $html_sql_query
+    private function getMoveBackwardButtonsForTableNavigation(
+        $html_sql_query,
+        $pos_prev
     ) {
-        return Template::get('display/results/show_all_checkbox')->render([
-            'db' => $this->__get('db'),
-            'table' => $this->__get('table'),
-            'is_browse_distinct' => $this->__get('is_browse_distinct'),
-            'goto' => $this->__get('goto'),
-            'unique_id' => $this->__get('unique_id'),
-            'html_sql_query' => $html_sql_query,
-            'showing_all' => $showing_all,
-            'max_rows' => intval($GLOBALS['cfg']['MaxRows']),
-        ]);
-    } // end of the '_getShowAllButtonForTableNavigation()' function
-
+        return $this->getTableNavigationButton(
+            '&lt;&lt;',
+            _pgettext('First page', 'Begin'),
+            0,
+            $html_sql_query,
+            true
+        )
+        . $this->getTableNavigationButton(
+            '&lt;',
+            _pgettext('Previous page', 'Previous'),
+            $pos_prev,
+            $html_sql_query,
+            true
+        );
+    }
 
     /**
      * Prepare move forward buttons - next and last
      *
-     * @param string  $html_sql_query the sql encoded by htmlspecialchars()
-     * @param integer $pos_next       the offset for the "next" page
-     * @param boolean $is_innodb      whether it's InnoDB or not
+     * @see getTableNavigation()
      *
-     * @return  string  $buttons_html   html content
+     * @param string $html_sql_query the sql encoded by htmlspecialchars()
+     * @param int    $pos_next       the offset for the "next" page
+     * @param bool   $is_innodb      whether it's InnoDB or not
      *
-     * @access  private
+     * @return string   html content
      *
-     * @see     _getTableNavigation()
+     * @access private
      */
-    private function _getMoveForwardButtonsForTableNavigation(
-        $html_sql_query, $pos_next, $is_innodb
+    private function getMoveForwardButtonsForTableNavigation(
+        $html_sql_query,
+        $pos_next,
+        $is_innodb
     ) {
-
         // display the Next button
-        $buttons_html = $this->_getTableNavigationButton(
+        $buttons_html = $this->getTableNavigationButton(
             '&gt;',
             _pgettext('Next page', 'Next'),
             $pos_next,
@@ -1060,10 +947,10 @@ class Results
 
         // prepare some options for the End button
         if ($is_innodb
-            && $this->__get('unlim_num_rows') > $GLOBALS['cfg']['MaxExactCount']
+            && $this->properties['unlim_num_rows'] > $GLOBALS['cfg']['MaxExactCount']
         ) {
             $input_for_real_end = '<input id="real_end_input" type="hidden" '
-                . 'name="find_real_end" value="1" />';
+                . 'name="find_real_end" value="1">';
             // no backquote around this message
             $onclick = '';
         } else {
@@ -1072,117 +959,89 @@ class Results
 
         $maxRows = $_SESSION['tmpval']['max_rows'];
         $onsubmit = 'onsubmit="return '
-            . (($_SESSION['tmpval']['pos']
+            . ($_SESSION['tmpval']['pos']
                 + $maxRows
-                < $this->__get('unlim_num_rows')
-                && $this->__get('num_rows') >= $maxRows)
+                < $this->properties['unlim_num_rows']
+                && $this->properties['num_rows'] >= $maxRows
             ? 'true'
             : 'false') . '"';
 
         // display the End button
-        $buttons_html .= $this->_getTableNavigationButton(
+        return $buttons_html . $this->getTableNavigationButton(
             '&gt;&gt;',
             _pgettext('Last page', 'End'),
-            @((ceil(
-                $this->__get('unlim_num_rows')
+            @((int) ceil(
+                $this->properties['unlim_num_rows']
                 / $_SESSION['tmpval']['max_rows']
-            )- 1) * $maxRows),
-            $html_sql_query, false, $onsubmit, $input_for_real_end, $onclick
+            ) - 1) * $maxRows,
+            $html_sql_query,
+            false,
+            $onsubmit,
+            $input_for_real_end,
+            $onclick
         );
-
-        return $buttons_html;
-
-    } // end of the '_getMoveForwardButtonsForTableNavigation()' function
-
-
-    /**
-     * Prepare fields for table navigation
-     * Number of rows
-     *
-     * @param string $sqlQuery the sql encoded by htmlspecialchars()
-     *
-     * @return string html content
-     *
-     * @access  private
-     *
-     * @see     _getTableNavigation()
-     */
-    private function _getAdditionalFieldsForTableNavigation($sqlQuery)
-    {
-        $numberOfRowsPlaceholder = null;
-        if ($_SESSION['tmpval']['max_rows'] == self::ALL_ROWS) {
-            $numberOfRowsPlaceholder = __('All');
-        }
-
-        $numberOfRowsChoices = array(
-            '25'  => 25,
-            '50'  => 50,
-            '100' => 100,
-            '250' => 250,
-            '500' => 500
-        );
-
-        return Template::get('display/results/additional_fields')->render([
-            'goto' => $this->__get('goto'),
-            'is_browse_distinct' => $this->__get('is_browse_distinct'),
-            'sql_query' => $sqlQuery,
-            'number_of_rows_choices' => $numberOfRowsChoices,
-            'number_of_rows_placeholder' => $numberOfRowsPlaceholder,
-            'pos' => $_SESSION['tmpval']['pos'],
-            'max_rows' => $_SESSION['tmpval']['max_rows'],
-        ]);
     }
 
     /**
      * Get the headers of the results table, for all of the columns
      *
-     * @param array   $displayParts                which elements to display
-     * @param array   $analyzed_sql_results        analyzed sql results
-     * @param array   $sort_expression             sort expression
-     * @param array   $sort_expression_nodirection sort expression
-     *                                             without direction
-     * @param array   $sort_direction              sort direction
-     * @param boolean $is_limited_display          with limited operations
-     *                                             or not
-     * @param string  $unsorted_sql_query          query without the sort part
+     * @see getTableHeaders()
+     *
+     * @param array  $displayParts                which elements to display
+     * @param array  $analyzed_sql_results        analyzed sql results
+     * @param array  $sort_expression             sort expression
+     * @param array  $sort_expression_nodirection sort expression
+     *                                            without direction
+     * @param array  $sort_direction              sort direction
+     * @param bool   $is_limited_display          with limited operations
+     *                                            or not
+     * @param string $unsorted_sql_query          query without the sort part
      *
      * @return string html content
      *
      * @access private
-     *
-     * @see    getTableHeaders()
      */
-    private function _getTableHeadersForColumns(
-        array $displayParts, array $analyzed_sql_results, array $sort_expression,
-        array $sort_expression_nodirection, array $sort_direction, $is_limited_display,
+    private function getTableHeadersForColumns(
+        array $displayParts,
+        array $analyzed_sql_results,
+        array $sort_expression,
+        array $sort_expression_nodirection,
+        array $sort_direction,
+        $is_limited_display,
         $unsorted_sql_query
     ) {
         $html = '';
 
         // required to generate sort links that will remember whether the
         // "Show all" button has been clicked
-        $sql_md5 = md5($this->__get('sql_query'));
+        $sql_md5 = md5(
+            $this->properties['server']
+            . $this->properties['db']
+            . $this->properties['sql_query']
+        );
         $session_max_rows = $is_limited_display
             ? 0
             : $_SESSION['tmpval']['query'][$sql_md5]['max_rows'];
 
         // Following variable are needed for use in isset/empty or
         // use with array indexes/safe use in the for loop
-        $highlight_columns = $this->__get('highlight_columns');
-        $fields_meta = $this->__get('fields_meta');
+        $highlight_columns = $this->properties['highlight_columns'];
+        $fields_meta = $this->properties['fields_meta'];
 
         // Prepare Display column comments if enabled
         // ($GLOBALS['cfg']['ShowBrowseComments']).
-        $comments_map = $this->_getTableCommentsArray($analyzed_sql_results);
+        $comments_map = $this->getTableCommentsArray($analyzed_sql_results);
 
-        list($col_order, $col_visib) = $this->_getColumnParams(
+        [$col_order, $col_visib] = $this->getColumnParams(
             $analyzed_sql_results
         );
 
         // optimize: avoid calling a method on each iteration
-        $number_of_columns = $this->__get('fields_cnt');
+        $number_of_columns = $this->properties['fields_cnt'];
 
         for ($j = 0; $j < $number_of_columns; $j++) {
+            // PHP 7.4 fix for accessing array offset on bool
+            $col_visib_current = is_array($col_visib) && isset($col_visib[$j]) ? $col_visib[$j] : null;
 
             // assign $i with the appropriate column order
             $i = $col_order ? $col_order[$j] : $j;
@@ -1190,24 +1049,26 @@ class Results
             //  See if this column should get highlight because it's used in the
             //  where-query.
             $name = $fields_meta[$i]->name;
-            $condition_field = (isset($highlight_columns[$name])
-                || isset($highlight_columns[Util::backquote($name)]))
-                ? true
-                : false;
+            $condition_field = isset($highlight_columns[$name])
+                || isset($highlight_columns[Util::backquote($name)]);
 
             // Prepare comment-HTML-wrappers for each row, if defined/enabled.
-            $comments = $this->_getCommentForRow($comments_map, $fields_meta[$i]);
-            $display_params = $this->__get('display_params');
+            $comments = $this->getCommentForRow($comments_map, $fields_meta[$i]);
+            $display_params = $this->properties['display_params'];
 
             if (($displayParts['sort_lnk'] == '1') && ! $is_limited_display) {
-
-                list($order_link, $sorted_header_html)
-                    = $this->_getOrderLinkAndSortedHeaderHtml(
-                        $fields_meta[$i], $sort_expression,
-                        $sort_expression_nodirection, $i, $unsorted_sql_query,
-                        $session_max_rows, $comments,
-                        $sort_direction, $col_visib,
-                        $col_visib[$j]
+                [$order_link, $sorted_header_html]
+                    = $this->getOrderLinkAndSortedHeaderHtml(
+                        $fields_meta[$i],
+                        $sort_expression,
+                        $sort_expression_nodirection,
+                        $i,
+                        $unsorted_sql_query,
+                        $session_max_rows,
+                        $comments,
+                        $sort_direction,
+                        $col_visib,
+                        $col_visib_current
                     );
 
                 $html .= $sorted_header_html;
@@ -1220,98 +1081,83 @@ class Results
             } else {
                 // Results can't be sorted
                 $html
-                    .= $this->_getDraggableClassForNonSortableColumns(
-                        $col_visib, $col_visib[$j], $condition_field,
-                        $fields_meta[$i], $comments
+                    .= $this->getDraggableClassForNonSortableColumns(
+                        $col_visib,
+                        $col_visib_current,
+                        $condition_field,
+                        $fields_meta[$i],
+                        $comments
                     );
 
                 $display_params['desc'][] = '    <th '
                     . 'class="draggable'
                     . ($condition_field ? ' condition"' : '')
-                    . '" data-column="' . htmlspecialchars($fields_meta[$i]->name)
-                    . '">' . '        '
-                    . htmlspecialchars($fields_meta[$i]->name)
+                    . '" data-column="' . htmlspecialchars((string) $fields_meta[$i]->name)
+                    . '">        '
+                    . htmlspecialchars((string) $fields_meta[$i]->name)
                     . $comments . '    </th>';
-            } // end else
+            }
 
-            $this->__set('display_params', $display_params);
+            $this->properties['display_params'] = $display_params;
+        }
 
-        } // end for
         return $html;
     }
 
     /**
      * Get the headers of the results table
      *
-     * @param array        &$displayParts               which elements to display
-     * @param array        $analyzed_sql_results        analyzed sql results
-     * @param string       $unsorted_sql_query          the unsorted sql query
-     * @param array        $sort_expression             sort expression
-     * @param array|string $sort_expression_nodirection sort expression
-     *                                                  without direction
-     * @param array        $sort_direction              sort direction
-     * @param boolean      $is_limited_display          with limited operations
-     *                                                  or not
+     * @see getTable()
      *
-     * @return string html content
+     * @param array        $displayParts              which elements to display
+     * @param array        $analyzedSqlResults        analyzed sql results
+     * @param string       $unsortedSqlQuery          the unsorted sql query
+     * @param array        $sortExpression            sort expression
+     * @param array|string $sortExpressionNoDirection sort expression without direction
+     * @param array        $sortDirection             sort direction
+     * @param bool         $isLimitedDisplay          with limited operations or not
      *
-     * @access private
-     *
-     * @see    getTable()
+     * @return array
      */
-    private function _getTableHeaders(
-        array &$displayParts, array $analyzed_sql_results, $unsorted_sql_query,
-        array $sort_expression = array(), $sort_expression_nodirection = '',
-        array $sort_direction = array(), $is_limited_display = false
-    ) {
-
-        $table_headers_html = '';
+    private function getTableHeaders(
+        array &$displayParts,
+        array $analyzedSqlResults,
+        $unsortedSqlQuery,
+        array $sortExpression = [],
+        $sortExpressionNoDirection = '',
+        array $sortDirection = [],
+        $isLimitedDisplay = false
+    ): array {
         // Needed for use in isset/empty or
         // use with array indexes/safe use in foreach
-        $printview = $this->__get('printview');
-        $display_params = $this->__get('display_params');
-
-        // Output data needed for grid editing
-        $table_headers_html .= '<input class="save_cells_at_once" type="hidden"'
-            . ' value="' . $GLOBALS['cfg']['SaveCellsAtOnce'] . '" />'
-            . '<div class="common_hidden_inputs">'
-            . Url::getHiddenInputs(
-                $this->__get('db'), $this->__get('table')
-            )
-            . '</div>';
+        $printView = $this->properties['printview'];
+        $displayParams = $this->properties['display_params'];
 
         // Output data needed for column reordering and show/hide column
-        $table_headers_html .= $this->_getDataForResettingColumnOrder($analyzed_sql_results);
+        $columnOrder = $this->getDataForResettingColumnOrder($analyzedSqlResults);
 
-        $display_params['emptypre']   = 0;
-        $display_params['emptyafter'] = 0;
-        $display_params['textbtn']    = '';
-        $full_or_partial_text_link = null;
+        $displayParams['emptypre'] = 0;
+        $displayParams['emptyafter'] = 0;
+        $displayParams['textbtn'] = '';
+        $fullOrPartialTextLink = '';
 
-        $this->__set('display_params', $display_params);
+        $this->properties['display_params'] = $displayParams;
 
         // Display options (if we are not in print view)
-        if (! (isset($printview) && ($printview == '1')) && ! $is_limited_display) {
-
-            $table_headers_html .= $this->_getOptionsBlock();
+        $optionsBlock = [];
+        if (! (isset($printView) && ($printView == '1')) && ! $isLimitedDisplay) {
+            $optionsBlock = $this->getOptionsBlock();
 
             // prepare full/partial text button or link
-            $full_or_partial_text_link = $this->_getFullOrPartialTextButtonOrLink();
+            $fullOrPartialTextLink = $this->getFullOrPartialTextButtonOrLink();
         }
-
-        // Start of form for multi-rows edit/delete/export
-        $table_headers_html .= $this->_getFormForMultiRowOperations(
-            $displayParts['del_lnk']
-        );
 
         // 1. Set $colspan and generate html with full/partial
         // text button or link
-        list($colspan, $button_html)
-            = $this->_getFieldVisibilityParams(
-                $displayParts, $full_or_partial_text_link
-            );
-
-        $table_headers_html .= $button_html;
+        [$colspan, $buttonHtml] = $this->getFieldVisibilityParams(
+            $displayParts,
+            $fullOrPartialTextLink
+        );
 
         // 2. Displays the fields' name
         // 2.0 If sorting links should be used, checks if the query is a "JOIN"
@@ -1319,42 +1165,55 @@ class Results
 
         // See if we have to highlight any header fields of a WHERE query.
         // Uses SQL-Parser results.
-        $this->_setHighlightedColumnGlobalField($analyzed_sql_results);
+        $this->setHighlightedColumnGlobalField($analyzedSqlResults);
 
         // Get the headers for all of the columns
-        $table_headers_html .= $this->_getTableHeadersForColumns(
-            $displayParts, $analyzed_sql_results, $sort_expression,
-            $sort_expression_nodirection, $sort_direction,
-            $is_limited_display, $unsorted_sql_query
+        $tableHeadersForColumns = $this->getTableHeadersForColumns(
+            $displayParts,
+            $analyzedSqlResults,
+            $sortExpression,
+            $sortExpressionNoDirection,
+            $sortDirection,
+            $isLimitedDisplay,
+            $unsortedSqlQuery
         );
 
         // Display column at rightside - checkboxes or empty column
-        if (! $printview) {
-            $table_headers_html .= $this->_getColumnAtRightSide(
-                $displayParts, $full_or_partial_text_link, $colspan
+        $columnAtRightSide = '';
+        if (! $printView) {
+            $columnAtRightSide = $this->getColumnAtRightSide(
+                $displayParts,
+                $fullOrPartialTextLink,
+                $colspan
             );
         }
-        $table_headers_html .= '</tr>' . '</thead>';
 
-        return $table_headers_html;
-
-    } // end of the '_getTableHeaders()' function
-
+        return [
+            'column_order' => $columnOrder,
+            'options' => $optionsBlock,
+            'has_bulk_actions_form' => $displayParts['del_lnk'] === self::DELETE_ROW
+                || $displayParts['del_lnk'] === self::KILL_PROCESS,
+            'button' => $buttonHtml,
+            'table_headers_for_columns' => $tableHeadersForColumns,
+            'column_at_right_side' => $columnAtRightSide,
+        ];
+    }
 
     /**
      * Prepare unsorted sql query and sort by key drop down
      *
-     * @param array  $analyzed_sql_results analyzed sql results
-     * @param string $sort_expression      sort expression
+     * @see getTableHeaders()
      *
-     * @return  array   two element array - $unsorted_sql_query, $drop_down_html
+     * @param array      $analyzed_sql_results analyzed sql results
+     * @param array|null $sort_expression      sort expression
      *
-     * @access  private
+     * @return array     two element array - $unsorted_sql_query, $drop_down_html
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getUnsortedSqlAndSortByKeyDropDown(
-        array $analyzed_sql_results, $sort_expression
+    private function getUnsortedSqlAndSortByKeyDropDown(
+        array $analyzed_sql_results,
+        ?array $sort_expression
     ) {
         $drop_down_html = '';
 
@@ -1366,246 +1225,232 @@ class Results
         );
 
         // Data is sorted by indexes only if it there is only one table.
-        if ($this->_isSelect($analyzed_sql_results)) {
+        if ($this->isSelect($analyzed_sql_results)) {
             // grab indexes data:
             $indexes = Index::getFromTable(
-                $this->__get('table'),
-                $this->__get('db')
+                $this->properties['table'],
+                $this->properties['db']
             );
 
             // do we have any index?
             if (! empty($indexes)) {
-                $drop_down_html = $this->_getSortByKeyDropDown(
-                    $indexes, $sort_expression,
+                $drop_down_html = $this->getSortByKeyDropDown(
+                    $indexes,
+                    $sort_expression,
                     $unsorted_sql_query
                 );
             }
         }
 
-        return array($unsorted_sql_query, $drop_down_html);
-
-    } // end of the '_getUnsortedSqlAndSortByKeyDropDown()' function
+        return [
+            $unsorted_sql_query,
+            $drop_down_html,
+        ];
+    }
 
     /**
      * Prepare sort by key dropdown - html code segment
      *
-     * @param Index[] $indexes            the indexes of the table for sort criteria
-     * @param string  $sort_expression    the sort expression
-     * @param string  $unsorted_sql_query the unsorted sql query
+     * @see getTableHeaders()
      *
-     * @return  string  $drop_down_html         html content
+     * @param Index[]    $indexes          the indexes of the table for sort criteria
+     * @param array|null $sortExpression   the sort expression
+     * @param string     $unsortedSqlQuery the unsorted sql query
      *
-     * @access  private
+     * @return string html content
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getSortByKeyDropDown(
-        $indexes, $sort_expression, $unsorted_sql_query
-    ) {
+    private function getSortByKeyDropDown(
+        $indexes,
+        ?array $sortExpression,
+        $unsortedSqlQuery
+    ): string {
+        $hiddenFields = [
+            'db' => $this->properties['db'],
+            'table' => $this->properties['table'],
+            'server' => $this->properties['server'],
+            'sort_by_key' => '1',
+        ];
 
-        $drop_down_html = '';
+        // Keep the number of rows (25, 50, 100, ...) when changing sort key value
+        if (isset($_SESSION['tmpval']) && isset($_SESSION['tmpval']['max_rows'])) {
+            $hiddenFields['session_max_rows'] = $_SESSION['tmpval']['max_rows'];
+        }
 
-        $drop_down_html .= '<form action="sql.php" method="post" ' .
-            'class="print_ignore">' . "\n"
-            . Url::getHiddenInputs(
-                $this->__get('db'), $this->__get('table')
-            )
-            . Url::getHiddenFields(array('sort_by_key' => '1'))
-            . __('Sort by key')
-            . ': <select name="sql_query" class="autosubmit">' . "\n";
+        $isIndexUsed = false;
+        $localOrder = is_array($sortExpression) ? implode(', ', $sortExpression) : '';
 
-        $used_index = false;
-        $local_order = (isset($sort_expression) ? $sort_expression : '');
-
+        $options = [];
         foreach ($indexes as $index) {
-
-            $asc_sort = '`'
+            $ascSort = '`'
                 . implode('` ASC, `', array_keys($index->getColumns()))
                 . '` ASC';
 
-            $desc_sort = '`'
+            $descSort = '`'
                 . implode('` DESC, `', array_keys($index->getColumns()))
                 . '` DESC';
 
-            $used_index = $used_index
-                || ($local_order == $asc_sort)
-                || ($local_order == $desc_sort);
+            $isIndexUsed = $isIndexUsed
+                || $localOrder === $ascSort
+                || $localOrder === $descSort;
 
+            $unsortedSqlQueryFirstPart = $unsortedSqlQuery;
+            $unsortedSqlQuerySecondPart = '';
             if (preg_match(
                 '@(.*)([[:space:]](LIMIT (.*)|PROCEDURE (.*)|'
                 . 'FOR UPDATE|LOCK IN SHARE MODE))@is',
-                $unsorted_sql_query, $my_reg
+                $unsortedSqlQuery,
+                $myReg
             )) {
-                $unsorted_sql_query_first_part = $my_reg[1];
-                $unsorted_sql_query_second_part = $my_reg[2];
-            } else {
-                $unsorted_sql_query_first_part = $unsorted_sql_query;
-                $unsorted_sql_query_second_part = '';
+                $unsortedSqlQueryFirstPart = $myReg[1];
+                $unsortedSqlQuerySecondPart = $myReg[2];
             }
 
-            $drop_down_html .= '<option value="'
-                . htmlspecialchars(
-                    $unsorted_sql_query_first_part  . "\n"
-                    . ' ORDER BY ' . $asc_sort
-                    . $unsorted_sql_query_second_part
-                )
-                . '"' . ($local_order == $asc_sort
-                    ? ' selected="selected"'
-                    : '')
-                . '>' . htmlspecialchars($index->getName()) . ' (ASC)</option>';
-
-            $drop_down_html .= '<option value="'
-                . htmlspecialchars(
-                    $unsorted_sql_query_first_part . "\n"
-                    . ' ORDER BY ' . $desc_sort
-                    . $unsorted_sql_query_second_part
-                )
-                . '"' . ($local_order == $desc_sort
-                    ? ' selected="selected"'
-                    : '')
-                . '>' . htmlspecialchars($index->getName()) . ' (DESC)</option>';
+            $options[] = [
+                'value' => $unsortedSqlQueryFirstPart . ' ORDER BY '
+                    . $ascSort . $unsortedSqlQuerySecondPart,
+                'content' => $index->getName() . ' (ASC)',
+                'is_selected' => $localOrder === $ascSort,
+            ];
+            $options[] = [
+                'value' => $unsortedSqlQueryFirstPart . ' ORDER BY '
+                    . $descSort . $unsortedSqlQuerySecondPart,
+                'content' => $index->getName() . ' (DESC)',
+                'is_selected' => $localOrder === $descSort,
+            ];
         }
+        $options[] = [
+            'value' => $unsortedSqlQuery,
+            'content' => __('None'),
+            'is_selected' => ! $isIndexUsed,
+        ];
 
-        $drop_down_html .= '<option value="' . htmlspecialchars($unsorted_sql_query)
-            . '"' . ($used_index ? '' : ' selected="selected"') . '>' . __('None')
-            . '</option>'
-            . '</select>' . "\n"
-            . '</form>' . "\n";
-
-        return $drop_down_html;
-
-    } // end of the '_getSortByKeyDropDown()' function
-
+        return $this->template->render('display/results/sort_by_key', [
+            'hidden_fields' => $hiddenFields,
+            'options' => $options,
+        ]);
+    }
 
     /**
      * Set column span, row span and prepare html with full/partial
      * text button or link
      *
-     * @param array  &$displayParts             which elements to display
+     * @see getTableHeaders()
+     *
+     * @param array  $displayParts              which elements to display
      * @param string $full_or_partial_text_link full/partial link or text button
      *
-     * @return  array   2 element array - $colspan, $button_html
+     * @return array 2 element array - $colspan, $button_html
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getFieldVisibilityParams(
-        array &$displayParts, $full_or_partial_text_link
+    private function getFieldVisibilityParams(
+        array &$displayParts,
+        $full_or_partial_text_link
     ) {
-
         $button_html = '';
-        $display_params = $this->__get('display_params');
+        $display_params = $this->properties['display_params'];
 
         // 1. Displays the full/partial text button (part 1)...
-        $button_html .= '<thead><tr>' . "\n";
+        $button_html .= '<thead class="thead-light"><tr>' . "\n";
 
-        $colspan = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-            && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE))
-            ? ' colspan="4"'
+        $emptyPreCondition = $displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE
+                           && $displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE;
+
+        $colspan = $emptyPreCondition ? ' colspan="4"'
             : '';
 
+        $leftOrBoth = $GLOBALS['cfg']['RowActionLinks'] === self::POSITION_LEFT
+                   || $GLOBALS['cfg']['RowActionLinks'] === self::POSITION_BOTH;
+
         //     ... before the result table
-        if ((($displayParts['edit_lnk'] == self::NO_EDIT_OR_DELETE)
-            && ($displayParts['del_lnk'] == self::NO_EDIT_OR_DELETE))
+        if (($displayParts['edit_lnk'] === self::NO_EDIT_OR_DELETE)
+            && ($displayParts['del_lnk'] === self::NO_EDIT_OR_DELETE)
             && ($displayParts['text_btn'] == '1')
         ) {
-
-            $display_params['emptypre']
-                = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)) ? 4 : 0;
-
-        } elseif ((($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_LEFT)
-            || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH))
-            && ($displayParts['text_btn'] == '1')
+            $display_params['emptypre'] = $emptyPreCondition ? 4 : 0;
+        } elseif ($leftOrBoth && ($displayParts['text_btn'] == '1')
         ) {
             //     ... at the left column of the result table header if possible
             //     and required
 
-            $display_params['emptypre']
-                = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)) ? 4 : 0;
+            $display_params['emptypre'] = $emptyPreCondition ? 4 : 0;
 
-            $button_html .= '<th class="column_action print_ignore" ' . $colspan
+            $button_html .= '<th class="column_action sticky print_ignore" ' . $colspan
                 . '>' . $full_or_partial_text_link . '</th>';
-
-        } elseif ((($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_LEFT)
-            || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH))
+        } elseif ($leftOrBoth
             && (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
             || ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE))
         ) {
             //     ... elseif no button, displays empty(ies) col(s) if required
 
-            $display_params['emptypre']
-                = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)) ? 4 : 0;
+            $display_params['emptypre'] = $emptyPreCondition ? 4 : 0;
 
             $button_html .= '<td ' . $colspan . '></td>';
-
-        } elseif (($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_NONE)) {
+        } elseif ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_NONE) {
             // ... elseif display an empty column if the actions links are
             //  disabled to match the rest of the table
-            $button_html .= '<th class="column_action"></th>';
+            $button_html .= '<th class="column_action sticky"></th>';
         }
 
-        $this->__set('display_params', $display_params);
+        $this->properties['display_params'] = $display_params;
 
-        return array($colspan, $button_html);
-
-    } // end of the '_getFieldVisibilityParams()' function
-
+        return [
+            $colspan,
+            $button_html,
+        ];
+    }
 
     /**
      * Get table comments as array
      *
+     * @see getTableHeaders()
+     *
      * @param array $analyzed_sql_results analyzed sql results
      *
-     * @return array $comments_map table comments
+     * @return array table comments
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getTableCommentsArray(array $analyzed_sql_results)
+    private function getTableCommentsArray(array $analyzed_sql_results)
     {
-        if ((!$GLOBALS['cfg']['ShowBrowseComments'])
-            || (empty($analyzed_sql_results['statement']->from))
+        if (! $GLOBALS['cfg']['ShowBrowseComments']
+            || empty($analyzed_sql_results['statement']->from)
         ) {
-            return array();
+            return [];
         }
 
-        $ret = array();
+        $ret = [];
         foreach ($analyzed_sql_results['statement']->from as $field) {
             if (empty($field->table)) {
                 continue;
             }
             $ret[$field->table] = $this->relation->getComments(
-                empty($field->database) ? $this->__get('db') : $field->database,
+                empty($field->database) ? $this->properties['db'] : $field->database,
                 $field->table
             );
         }
 
         return $ret;
-
-    } // end of the '_getTableCommentsArray()' function
-
+    }
 
     /**
      * Set global array for store highlighted header fields
      *
+     * @see getTableHeaders()
+     *
      * @param array $analyzed_sql_results analyzed sql results
      *
-     * @return  void
+     * @return void
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _setHighlightedColumnGlobalField(array $analyzed_sql_results)
+    private function setHighlightedColumnGlobalField(array $analyzed_sql_results)
     {
-        $highlight_columns = array();
+        $highlight_columns = [];
 
-        if (!empty($analyzed_sql_results['statement']->where)) {
+        if (! empty($analyzed_sql_results['statement']->where)) {
             foreach ($analyzed_sql_results['statement']->where as $expr) {
                 foreach ($expr->identifiers as $identifier) {
                     $highlight_columns[$identifier] = 'true';
@@ -1613,159 +1458,115 @@ class Results
             }
         }
 
-        $this->__set('highlight_columns', $highlight_columns);
-
-    } // end of the '_setHighlightedColumnGlobalField()' function
-
+        $this->properties['highlight_columns'] = $highlight_columns;
+    }
 
     /**
      * Prepare data for column restoring and show/hide
      *
-     * @param array $analyzed_sql_results analyzed sql results
+     * @see getTableHeaders()
      *
-     * @return  string  $data_html      html content
+     * @param array $analyzedSqlResults analyzed sql results
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @return array
      */
-    private function _getDataForResettingColumnOrder(array $analyzed_sql_results)
+    private function getDataForResettingColumnOrder(array $analyzedSqlResults): array
     {
-        if (! $this->_isSelect($analyzed_sql_results)) {
-            return '';
+        global $dbi;
+
+        if (! $this->isSelect($analyzedSqlResults)) {
+            return [];
         }
 
-        // generate the column order, if it is set
-        list($col_order, $col_visib) = $this->_getColumnParams(
-            $analyzed_sql_results
+        [$columnOrder, $columnVisibility] = $this->getColumnParams(
+            $analyzedSqlResults
         );
 
-        $data_html = '';
-
-        if ($col_order) {
-            $data_html .= '<input class="col_order" type="hidden" value="'
-                . implode(',', $col_order) . '" />';
-        }
-
-        if ($col_visib) {
-            $data_html .= '<input class="col_visib" type="hidden" value="'
-                . implode(',', $col_visib) . '" />';
-        }
-
-        // generate table create time
-        $table = new Table($this->__get('table'), $this->__get('db'));
+        $tableCreateTime = '';
+        $table = new Table($this->properties['table'], $this->properties['db']);
         if (! $table->isView()) {
-            $data_html .= '<input class="table_create_time" type="hidden" value="'
-                . $GLOBALS['dbi']->getTable(
-                    $this->__get('db'), $this->__get('table')
-                )->getStatusInfo('Create_time')
-                . '" />';
+            $tableCreateTime = $dbi->getTable(
+                $this->properties['db'],
+                $this->properties['table']
+            )->getStatusInfo('Create_time');
         }
 
-        return $data_html;
-
-    } // end of the '_getDataForResettingColumnOrder()' function
-
+        return [
+            'order' => $columnOrder,
+            'visibility' => $columnVisibility,
+            'is_view' => $table->isView(),
+            'table_create_time' => $tableCreateTime,
+        ];
+    }
 
     /**
      * Prepare option fields block
      *
-     * @return string html content
+     * @see getTableHeaders()
      *
-     * @access private
-     *
-     * @see _getTableHeaders()
+     * @return array
      */
-    private function _getOptionsBlock()
+    private function getOptionsBlock(): array
     {
-        if(isset($_SESSION['tmpval']['possible_as_geometry']) && $_SESSION['tmpval']['possible_as_geometry'] == false) {
-            if($_SESSION['tmpval']['geoOption'] == self::GEOMETRY_DISP_GEOM) {
+        if (isset($_SESSION['tmpval']['possible_as_geometry'])
+            && $_SESSION['tmpval']['possible_as_geometry'] == false
+        ) {
+            if ($_SESSION['tmpval']['geoOption'] === self::GEOMETRY_DISP_GEOM) {
                 $_SESSION['tmpval']['geoOption'] = self::GEOMETRY_DISP_WKT;
             }
         }
-        return Template::get('display/results/options_block')->render([
-            'unique_id' => $this->__get('unique_id'),
+
+        return [
             'geo_option' => $_SESSION['tmpval']['geoOption'],
             'hide_transformation' => $_SESSION['tmpval']['hide_transformation'],
             'display_blob' => $_SESSION['tmpval']['display_blob'],
             'display_binary' => $_SESSION['tmpval']['display_binary'],
             'relational_display' => $_SESSION['tmpval']['relational_display'],
-            'displaywork' => $GLOBALS['cfgRelation']['displaywork'],
-            'relwork' => $GLOBALS['cfgRelation']['relwork'],
             'possible_as_geometry' => $_SESSION['tmpval']['possible_as_geometry'],
             'pftext' => $_SESSION['tmpval']['pftext'],
-            'db' => $this->__get('db'),
-            'table' => $this->__get('table'),
-            'sql_query' => $this->__get('sql_query'),
-            'goto' => $this->__get('goto'),
-        ]);
+        ];
     }
 
     /**
      * Get full/partial text button or link
      *
+     * @see getTableHeaders()
+     *
      * @return string html content
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getFullOrPartialTextButtonOrLink()
+    private function getFullOrPartialTextButtonOrLink()
     {
+        $url_params_full_text = [
+            'db' => $this->properties['db'],
+            'table' => $this->properties['table'],
+            'sql_query' => $this->properties['sql_query'],
+            'goto' => $this->properties['goto'],
+            'full_text_button' => 1,
+        ];
 
-        $url_params_full_text = array(
-            'db' => $this->__get('db'),
-            'table' => $this->__get('table'),
-            'sql_query' => $this->__get('sql_query'),
-            'goto' => $this->__get('goto'),
-            'full_text_button' => 1
-        );
-
-        if ($_SESSION['tmpval']['pftext'] == self::DISPLAY_FULL_TEXT) {
+        if ($_SESSION['tmpval']['pftext'] === self::DISPLAY_FULL_TEXT) {
             // currently in fulltext mode so show the opposite link
-            $tmp_image_file = $this->__get('pma_theme_image') . 's_partialtext.png';
+            $tmp_image_file = $this->properties['theme_image_path'] . 's_partialtext.png';
             $tmp_txt = __('Partial texts');
             $url_params_full_text['pftext'] = self::DISPLAY_PARTIAL_TEXT;
         } else {
-            $tmp_image_file = $this->__get('pma_theme_image') . 's_fulltext.png';
+            $tmp_image_file = $this->properties['theme_image_path'] . 's_fulltext.png';
             $tmp_txt = __('Full texts');
             $url_params_full_text['pftext'] = self::DISPLAY_FULL_TEXT;
         }
 
         $tmp_image = '<img class="fulltext" src="' . $tmp_image_file . '" alt="'
-                     . $tmp_txt . '" title="' . $tmp_txt . '" />';
-        $tmp_url = 'sql.php' . Url::getCommon($url_params_full_text);
+                     . $tmp_txt . '" title="' . $tmp_txt . '">';
 
-        return Util::linkOrButton($tmp_url, $tmp_image);
-
-    } // end of the '_getFullOrPartialTextButtonOrLink()' function
-
-
-    /**
-     * Prepare html form for multi row operations
-     *
-     * @param string $deleteLink the delete link of current row
-     *
-     * @return  string  $form_html          html content
-     *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
-     */
-    private function _getFormForMultiRowOperations($deleteLink)
-    {
-        return Template::get('display/results/multi_row_operations_form')->render([
-            'delete_link' => $deleteLink,
-            'delete_row' => self::DELETE_ROW,
-            'kill_process' => self::KILL_PROCESS,
-            'unique_id' => $this->__get('unique_id'),
-            'db' => $this->__get('db'),
-            'table' => $this->__get('table'),
-        ]);
+        return Generator::linkOrButton(Url::getFromRoute('/sql'), $url_params_full_text, $tmp_image);
     }
 
     /**
      * Get comment for row
+     *
+     * @see getTableHeaders()
      *
      * @param array $commentsMap comments array
      * @param array $fieldsMeta  set of field properties
@@ -1773,12 +1574,10 @@ class Results
      * @return string html content
      *
      * @access private
-     *
-     * @see _getTableHeaders()
      */
-    private function _getCommentForRow(array $commentsMap, $fieldsMeta)
+    private function getCommentForRow(array $commentsMap, $fieldsMeta)
     {
-        return Template::get('display/results/comment_for_row')->render([
+        return $this->template->render('display/results/comment_for_row', [
             'comments_map' => $commentsMap,
             'fields_meta' => $fieldsMeta,
             'limit_chars' => $GLOBALS['cfg']['LimitChars'],
@@ -1788,30 +1587,35 @@ class Results
     /**
      * Prepare parameters and html for sorted table header fields
      *
-     * @param array   $fields_meta                 set of field properties
-     * @param array   $sort_expression             sort expression
-     * @param array   $sort_expression_nodirection sort expression without direction
-     * @param integer $column_index                the index of the column
-     * @param string  $unsorted_sql_query          the unsorted sql query
-     * @param integer $session_max_rows            maximum rows resulted by sql
-     * @param string  $comments                    comment for row
-     * @param array   $sort_direction              sort direction
-     * @param boolean $col_visib                   column is visible(false)
-     *        array                                column isn't visible(string array)
-     * @param string  $col_visib_j                 element of $col_visib array
+     * @see getTableHeaders()
      *
-     * @return  array   2 element array - $order_link, $sorted_header_html
+     * @param stdClass $fields_meta                 set of field properties
+     * @param array    $sort_expression             sort expression
+     * @param array    $sort_expression_nodirection sort expression without direction
+     * @param int      $column_index                the index of the column
+     * @param string   $unsorted_sql_query          the unsorted sql query
+     * @param int      $session_max_rows            maximum rows resulted by sql
+     * @param string   $comments                    comment for row
+     * @param array    $sort_direction              sort direction
+     * @param bool     $col_visib                   column is visible(false) or column isn't visible(string array)
+     * @param string   $col_visib_j                 element of $col_visib array
      *
-     * @access  private
+     * @return array   2 element array - $order_link, $sorted_header_html
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getOrderLinkAndSortedHeaderHtml(
-        $fields_meta, array $sort_expression, array $sort_expression_nodirection,
-        $column_index, $unsorted_sql_query, $session_max_rows,
-        $comments, array $sort_direction, $col_visib, $col_visib_j
+    private function getOrderLinkAndSortedHeaderHtml(
+        $fields_meta,
+        array $sort_expression,
+        array $sort_expression_nodirection,
+        $column_index,
+        $unsorted_sql_query,
+        $session_max_rows,
+        $comments,
+        array $sort_direction,
+        $col_visib,
+        $col_visib_j
     ) {
-
         $sorted_header_html = '';
 
         // Checks if the table name is required; it's the case
@@ -1820,9 +1624,9 @@ class Results
         // SELECT `1`.`master_field` , `2`.`master_field`
         // FROM `PMA_relation` AS `1` , `PMA_relation` AS `2`
 
-        $sort_tbl = (isset($fields_meta->table)
+        $sort_tbl = isset($fields_meta->table)
             && strlen($fields_meta->table) > 0
-            && $fields_meta->orgname == $fields_meta->name)
+            && $fields_meta->orgname == $fields_meta->name
             ? Util::backquote(
                 $fields_meta->table
             ) . '.'
@@ -1832,16 +1636,21 @@ class Results
 
         // Generates the orderby clause part of the query which is part
         // of URL
-        list($single_sort_order, $multi_sort_order, $order_img)
-            = $this->_getSingleAndMultiSortUrls(
-                $sort_expression, $sort_expression_nodirection, $sort_tbl,
-                $name_to_use_in_sort, $sort_direction, $fields_meta, $column_index
+        [$single_sort_order, $multi_sort_order, $order_img]
+            = $this->getSingleAndMultiSortUrls(
+                $sort_expression,
+                $sort_expression_nodirection,
+                $sort_tbl,
+                $name_to_use_in_sort,
+                $sort_direction,
+                $fields_meta
             );
 
         if (preg_match(
             '@(.*)([[:space:]](LIMIT (.*)|PROCEDURE (.*)|FOR UPDATE|'
             . 'LOCK IN SHARE MODE))@is',
-            $unsorted_sql_query, $regs3
+            $unsorted_sql_query,
+            $regs3
         )) {
             $single_sorted_sql_query = $regs3[1] . $single_sort_order . $regs3[2];
             $multi_sorted_sql_query = $regs3[1] . $multi_sort_order . $regs3[2];
@@ -1850,70 +1659,88 @@ class Results
             $multi_sorted_sql_query = $unsorted_sql_query . $multi_sort_order;
         }
 
-        $_single_url_params = array(
-            'db'                 => $this->__get('db'),
-            'table'              => $this->__get('table'),
+        $_single_url_params = [
+            'db'                 => $this->properties['db'],
+            'table'              => $this->properties['table'],
             'sql_query'          => $single_sorted_sql_query,
+            'sql_signature'      => Core::signSqlQuery($single_sorted_sql_query),
             'session_max_rows'   => $session_max_rows,
-            'is_browse_distinct' => $this->__get('is_browse_distinct'),
-        );
+            'is_browse_distinct' => $this->properties['is_browse_distinct'],
+        ];
 
-        $_multi_url_params = array(
-            'db'                 => $this->__get('db'),
-            'table'              => $this->__get('table'),
+        $_multi_url_params = [
+            'db'                 => $this->properties['db'],
+            'table'              => $this->properties['table'],
             'sql_query'          => $multi_sorted_sql_query,
+            'sql_signature'      => Core::signSqlQuery($multi_sorted_sql_query),
             'session_max_rows'   => $session_max_rows,
-            'is_browse_distinct' => $this->__get('is_browse_distinct'),
-        );
-        $single_order_url  = 'sql.php' . Url::getCommon($_single_url_params);
-        $multi_order_url = 'sql.php' . Url::getCommon($_multi_url_params);
+            'is_browse_distinct' => $this->properties['is_browse_distinct'],
+        ];
 
         // Displays the sorting URL
         // enable sort order swapping for image
-        $order_link = $this->_getSortOrderLink(
-            $order_img, $fields_meta, $single_order_url, $multi_order_url
+        $order_link = $this->getSortOrderLink(
+            $order_img,
+            $fields_meta,
+            $_single_url_params,
+            $_multi_url_params
         );
 
-        $sorted_header_html .= $this->_getDraggableClassForSortableColumns(
-            $col_visib, $col_visib_j,
-            $fields_meta, $order_link, $comments
+        $order_link .= $this->getSortOrderHiddenInputs(
+            $_multi_url_params,
+            $name_to_use_in_sort
         );
 
-        return array($order_link, $sorted_header_html);
+        $sorted_header_html .= $this->getDraggableClassForSortableColumns(
+            $col_visib,
+            $col_visib_j,
+            $fields_meta,
+            $order_link,
+            $comments
+        );
 
-    } // end of the '_getOrderLinkAndSortedHeaderHtml()' function
+        return [
+            $order_link,
+            $sorted_header_html,
+        ];
+    }
 
     /**
      * Prepare parameters and html for sorted table header fields
      *
-     * @param array   $sort_expression             sort expression
-     * @param array   $sort_expression_nodirection sort expression without direction
-     * @param string  $sort_tbl                    The name of the table to which
-     *                                             the current column belongs to
-     * @param string  $name_to_use_in_sort         The current column under
-     *                                             consideration
-     * @param array   $sort_direction              sort direction
-     * @param array   $fields_meta                 set of field properties
-     * @param integer $column_index                The index number to current column
+     * @see    getOrderLinkAndSortedHeaderHtml()
      *
-     * @return  array   3 element array - $single_sort_order, $sort_order, $order_img
+     * @param array    $sort_expression             sort expression
+     * @param array    $sort_expression_nodirection sort expression without direction
+     * @param string   $sort_tbl                    The name of the table to which
+     *                                              the current column belongs to
+     * @param string   $name_to_use_in_sort         The current column under
+     *                                              consideration
+     * @param array    $sort_direction              sort direction
+     * @param stdClass $fields_meta                 set of field properties
      *
-     * @access  private
+     * @return array   3 element array - $single_sort_order, $sort_order, $order_img
      *
-     * @see     _getOrderLinkAndSortedHeaderHtml()
+     * @access private
      */
-    private function _getSingleAndMultiSortUrls(
-        array $sort_expression, array $sort_expression_nodirection, $sort_tbl,
-        $name_to_use_in_sort, array $sort_direction, $fields_meta, $column_index
+    private function getSingleAndMultiSortUrls(
+        array $sort_expression,
+        array $sort_expression_nodirection,
+        $sort_tbl,
+        $name_to_use_in_sort,
+        array $sort_direction,
+        $fields_meta
     ) {
-        $sort_order = "";
+        $sort_order = '';
         // Check if the current column is in the order by clause
-        $is_in_sort = $this->_isInSorted(
-            $sort_expression, $sort_expression_nodirection,
-            $sort_tbl, $name_to_use_in_sort
+        $is_in_sort = $this->isInSorted(
+            $sort_expression,
+            $sort_expression_nodirection,
+            $sort_tbl,
+            $name_to_use_in_sort
         );
         $current_name = $name_to_use_in_sort;
-        if ($sort_expression_nodirection[0] == '' || !$is_in_sort) {
+        if ($sort_expression_nodirection[0] == '' || ! $is_in_sort) {
             $special_index = $sort_expression_nodirection[0] == ''
                 ? 0
                 : count($sort_expression_nodirection);
@@ -1921,16 +1748,15 @@ class Results
                 = Util::backquote(
                     $current_name
                 );
-            $sort_direction[$special_index] = (preg_match(
+            $sort_direction[$special_index] = preg_match(
                 '@time|date@i',
-                $fields_meta->type
-            )) ? self::DESCENDING_SORT_DIR : self::ASCENDING_SORT_DIR;
-
+                $fields_meta->type ?? ''
+            ) ? self::DESCENDING_SORT_DIR : self::ASCENDING_SORT_DIR;
         }
 
         $sort_expression_nodirection = array_filter($sort_expression_nodirection);
         $single_sort_order = null;
-        foreach ($sort_expression_nodirection as $index=>$expression) {
+        foreach ($sort_expression_nodirection as $index => $expression) {
             // check if this is the first clause,
             // if it is then we have to add "order by"
             $is_first_clause = ($index == 0);
@@ -1949,29 +1775,28 @@ class Results
             // $name_to_use_in_sort might contain a space due to
             // formatting of function expressions like "COUNT(name )"
             // so we remove the space in this situation
-            $name_to_use_in_sort = str_replace(' )', ')', $name_to_use_in_sort);
-            $name_to_use_in_sort = str_replace('``', '`', $name_to_use_in_sort);
+            $name_to_use_in_sort = str_replace([' )', '``'], [')', '`'], $name_to_use_in_sort);
             $name_to_use_in_sort = trim($name_to_use_in_sort, '`');
 
             // If this the first column name in the order by clause add
             // order by clause to the  column name
-            $query_head = $is_first_clause ? "\nORDER BY " : "";
+            $query_head = $is_first_clause ? "\nORDER BY " : '';
             // Again a check to see if the given column is a aggregate column
             if (mb_strpos($name_to_use_in_sort, '(') !== false) {
-                $sort_order .=  $query_head  . $name_to_use_in_sort . ' ' ;
+                $sort_order .=  $query_head . $name_to_use_in_sort . ' ';
             } else {
                 if (strlen($sort_tbl_new) > 0) {
-                    $sort_tbl_new .= ".";
+                    $sort_tbl_new .= '.';
                 }
-                $sort_order .=  $query_head  . $sort_tbl_new
+                $sort_order .=  $query_head . $sort_tbl_new
                   . Util::backquote(
                       $name_to_use_in_sort
-                  ) .  ' ' ;
+                  ) . ' ';
             }
 
             // For a special case where the code generates two dots between
             // column name and table name.
-            $sort_order = preg_replace("/\.\./", ".", $sort_order);
+            $sort_order = preg_replace('/\.\./', '.', $sort_order);
             // Incase this is the current column save $single_sort_order
             if ($current_name == $name_to_use_in_sort) {
                 if (mb_strpos($current_name, '(') !== false) {
@@ -1983,9 +1808,11 @@ class Results
                         ) . ' ';
                 }
                 if ($is_in_sort) {
-                    list($single_sort_order, $order_img)
-                        = $this->_getSortingUrlParams(
-                            $sort_direction, $single_sort_order, $index
+                    [$single_sort_order, $order_img]
+                        = $this->getSortingUrlParams(
+                            $sort_direction,
+                            $single_sort_order,
+                            $index
                         );
                 } else {
                     $single_sort_order .= strtoupper($sort_direction[$index]);
@@ -1993,17 +1820,17 @@ class Results
             }
             if ($current_name == $name_to_use_in_sort && $is_in_sort) {
                 // We need to generate the arrow button and related html
-                list($sort_order, $order_img) = $this->_getSortingUrlParams(
-                    $sort_direction, $sort_order, $index
+                [$sort_order, $order_img] = $this->getSortingUrlParams(
+                    $sort_direction,
+                    $sort_order,
+                    $index
                 );
-                $order_img .= " <small>" . ($index + 1) . "</small>";
+                $order_img .= ' <small>' . ($index + 1) . '</small>';
             } else {
                 $sort_order .= strtoupper($sort_direction[$index]);
             }
             // Separate columns by a comma
-            $sort_order .= ", ";
-
-            unset($name_to_use_in_sort);
+            $sort_order .= ', ';
         }
         // remove the comma from the last column name in the newly
         // constructed clause
@@ -2015,34 +1842,40 @@ class Results
         if (empty($order_img)) {
             $order_img = '';
         }
-        return array($single_sort_order, $sort_order, $order_img);
+
+        return [
+            $single_sort_order,
+            $sort_order,
+            $order_img,
+        ];
     }
 
     /**
      * Check whether the column is sorted
+     *
+     * @see getTableHeaders()
      *
      * @param array  $sort_expression             sort expression
      * @param array  $sort_expression_nodirection sort expression without direction
      * @param string $sort_tbl                    the table name
      * @param string $name_to_use_in_sort         the sorting column name
      *
-     * @return boolean $is_in_sort                   the column sorted or not
+     * @return bool the column sorted or not
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _isInSorted(
-        array $sort_expression, array $sort_expression_nodirection, $sort_tbl,
+    private function isInSorted(
+        array $sort_expression,
+        array $sort_expression_nodirection,
+        $sort_tbl,
         $name_to_use_in_sort
     ) {
-
         $index_in_expression = 0;
 
         foreach ($sort_expression_nodirection as $index => $clause) {
             if (mb_strpos($clause, '.') !== false) {
                 $fragments = explode('.', $clause);
-                $clause2 = $fragments[0] . "." . str_replace('`', '', $fragments[1]);
+                $clause2 = $fragments[0] . '.' . str_replace('`', '', $fragments[1]);
             } else {
                 $clause2 = $sort_tbl . str_replace('`', '', $clause);
             }
@@ -2064,10 +1897,12 @@ class Results
             // SELECT p.*, FROM_UNIXTIME(p.temps) FROM mytable AS p
             // (and try clicking on each column's header twice)
             $noSortTable = empty($sort_tbl) || mb_strpos(
-                $sort_expression_nodirection[$index_in_expression], $sort_tbl
+                $sort_expression_nodirection[$index_in_expression],
+                $sort_tbl
             ) === false;
             $noOpenParenthesis = mb_strpos(
-                $sort_expression_nodirection[$index_in_expression], '('
+                $sort_expression_nodirection[$index_in_expression],
+                '('
             ) === false;
             if (! empty($sort_tbl) && $noSortTable && $noOpenParenthesis) {
                 $new_sort_expression_nodirection = $sort_tbl
@@ -2092,132 +1927,202 @@ class Results
         }
 
         return $is_in_sort;
-
-    } // end of the '_isInSorted()' function
-
+    }
 
     /**
      * Get sort url parameters - sort order and order image
      *
-     * @param array   $sort_direction the sort direction
-     * @param string  $sort_order     the sorting order
-     * @param integer $index          the index of sort direction array.
+     * @see     getSingleAndMultiSortUrls()
      *
-     * @return  array                       2 element array - $sort_order, $order_img
+     * @param array  $sort_direction the sort direction
+     * @param string $sort_order     the sorting order
+     * @param int    $index          the index of sort direction array.
      *
-     * @access  private
+     * @return array                  2 element array - $sort_order, $order_img
      *
-     * @see     _getSingleAndMultiSortUrls()
+     * @access private
      */
-    private function _getSortingUrlParams(array $sort_direction, $sort_order, $index)
+    private function getSortingUrlParams(array $sort_direction, $sort_order, $index)
     {
-        if (strtoupper(trim($sort_direction[$index])) == self::DESCENDING_SORT_DIR) {
+        if (strtoupper(trim($sort_direction[$index])) === self::DESCENDING_SORT_DIR) {
             $sort_order .= ' ASC';
-            $order_img   = ' ' . Util::getImage(
-                's_desc', __('Descending'),
-                array('class' => "soimg", 'title' => '')
+            $order_img   = ' ' . Generator::getImage(
+                's_desc',
+                __('Descending'),
+                [
+                    'class' => 'soimg',
+                    'title' => '',
+                ]
             );
-            $order_img  .= ' ' . Util::getImage(
-                's_asc', __('Ascending'),
-                array('class' => "soimg hide", 'title' => '')
+            $order_img  .= ' ' . Generator::getImage(
+                's_asc',
+                __('Ascending'),
+                [
+                    'class' => 'soimg hide',
+                    'title' => '',
+                ]
             );
         } else {
             $sort_order .= ' DESC';
-            $order_img   = ' ' . Util::getImage(
-                's_asc', __('Ascending'),
-                array('class' => "soimg", 'title' => '')
+            $order_img   = ' ' . Generator::getImage(
+                's_asc',
+                __('Ascending'),
+                [
+                    'class' => 'soimg',
+                    'title' => '',
+                ]
             );
-            $order_img  .=  ' ' . Util::getImage(
-                's_desc', __('Descending'),
-                array('class' => "soimg hide", 'title' => '')
+            $order_img  .=  ' ' . Generator::getImage(
+                's_desc',
+                __('Descending'),
+                [
+                    'class' => 'soimg hide',
+                    'title' => '',
+                ]
             );
         }
-        return array($sort_order, $order_img);
-    } // end of the '_getSortingUrlParams()' function
 
+        return [
+            $sort_order,
+            $order_img,
+        ];
+    }
 
     /**
      * Get sort order link
      *
-     * @param string $order_img       the sort order image
-     * @param array  $fields_meta     set of field properties
-     * @param string $order_url       the url for sort
-     * @param string $multi_order_url the url for sort
+     * @see getTableHeaders()
      *
-     * @return  string                      the sort order link
+     * @param string   $order_img              the sort order image
+     * @param stdClass $fields_meta            set of field properties
+     * @param array    $order_url_params       the url params for sort
+     * @param array    $multi_order_url_params the url params for sort
      *
-     * @access  private
+     * @return string the sort order link
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getSortOrderLink(
-        $order_img, $fields_meta, $order_url, $multi_order_url
+    private function getSortOrderLink(
+        $order_img,
+        $fields_meta,
+        $order_url_params,
+        $multi_order_url_params
     ) {
-        $order_link_params = array(
-            'class' => 'sortlink'
-        );
+        $order_link_params = ['class' => 'sortlink'];
 
-        $order_link_content = htmlspecialchars($fields_meta->name);
+        $order_link_content = htmlspecialchars($fields_meta->name ?? '');
         $inner_link_content = $order_link_content . $order_img
-            . '<input type="hidden" value="' .  $multi_order_url . '" />';
+            . '<input type="hidden" value="'
+            . Url::getFromRoute('/sql')
+            . Url::getCommon($multi_order_url_params, '?', false)
+            . '">';
 
-        return Util::linkOrButton(
-            $order_url, $inner_link_content, $order_link_params
+        return Generator::linkOrButton(
+            Url::getFromRoute('/sql'),
+            $order_url_params,
+            $inner_link_content,
+            $order_link_params
         );
+    }
 
-    } // end of the '_getSortOrderLink()' function
+    private function getSortOrderHiddenInputs(
+        array $multipleUrlParams,
+        string $nameToUseInSort
+    ): string {
+        $sqlQuery = $multipleUrlParams['sql_query'];
+        $sqlQueryAdd = $sqlQuery;
+        $sqlQueryRemove = null;
+        $parser = new Parser($sqlQuery);
+
+        $firstStatement = $parser->statements[0] ?? null;
+        $numberOfClausesFound = null;
+        if ($firstStatement instanceof SelectStatement) {
+            $orderClauses = $firstStatement->order ?? [];
+            foreach ($orderClauses as $key => $order) {
+                // If this is the column name, then remove it from the order clause
+                if ($order->expr->column !== $nameToUseInSort) {
+                    continue;
+                }
+                // remove the order clause for this column and from the counted array
+                unset($firstStatement->order[$key], $orderClauses[$key]);
+            }
+            $numberOfClausesFound = count($orderClauses);
+            $sqlQueryRemove = $firstStatement->build();
+        }
+
+        $multipleUrlParams['sql_query'] = $sqlQueryRemove ?? $sqlQuery;
+        $multipleUrlParams['sql_signature'] = Core::signSqlQuery($multipleUrlParams['sql_query']);
+
+        $urlRemoveOrder = Url::getFromRoute('/sql', $multipleUrlParams);
+        if ($numberOfClausesFound !== null && $numberOfClausesFound === 0) {
+            $urlRemoveOrder .= '&discard_remembered_sort=1';
+        }
+
+        $multipleUrlParams['sql_query'] = $sqlQueryAdd;
+        $multipleUrlParams['sql_signature'] = Core::signSqlQuery($multipleUrlParams['sql_query']);
+
+        $urlAddOrder = Url::getFromRoute('/sql', $multipleUrlParams);
+
+        return '<input type="hidden" name="url-remove-order" value="' . $urlRemoveOrder . '">' . "\n"
+             . '<input type="hidden" name="url-add-order" value="' . $urlAddOrder . '">';
+    }
 
     /**
      * Check if the column contains numeric data. If yes, then set the
      * column header's alignment right
      *
-     * @param array $fields_meta set of field properties
-     * @param array &$th_class   array containing classes
+     * @see  getDraggableClassForSortableColumns()
+     *
+     * @param stdClass $fields_meta set of field properties
+     * @param array    $th_class    array containing classes
      *
      * @return void
-     *
-     * @see  _getDraggableClassForSortableColumns()
      */
-    private function _getClassForNumericColumnType($fields_meta, array &$th_class)
+    private function getClassForNumericColumnType($fields_meta, array &$th_class)
     {
-        if (preg_match(
+        if (! preg_match(
             '@int|decimal|float|double|real|bit|boolean|serial@i',
-            $fields_meta->type
+            (string) $fields_meta->type
         )) {
-            $th_class[] = 'right';
+            return;
         }
+
+        $th_class[] = 'text-right';
     }
 
     /**
      * Prepare columns to draggable effect for sortable columns
      *
-     * @param boolean $col_visib   the column is visible (false)
-     *        array                the column is not visible (string array)
-     * @param string  $col_visib_j element of $col_visib array
-     * @param array   $fields_meta set of field properties
-     * @param string  $order_link  the order link
-     * @param string  $comments    the comment for the column
+     * @see getTableHeaders()
      *
-     * @return  string  $draggable_html     html content
+     * @param bool     $col_visib   the column is visible (false)
+     *                              array                the column is not visible (string array)
+     * @param string   $col_visib_j element of $col_visib array
+     * @param stdClass $fields_meta set of field properties
+     * @param string   $order_link  the order link
+     * @param string   $comments    the comment for the column
      *
-     * @access  private
+     * @return string  html content
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getDraggableClassForSortableColumns(
-        $col_visib, $col_visib_j, $fields_meta,
-        $order_link, $comments
+    private function getDraggableClassForSortableColumns(
+        $col_visib,
+        $col_visib_j,
+        $fields_meta,
+        $order_link,
+        $comments
     ) {
-
         $draggable_html = '<th';
-        $th_class = array();
+        $th_class = [];
         $th_class[] = 'draggable';
-        $this->_getClassForNumericColumnType($fields_meta, $th_class);
-        if ($col_visib && !$col_visib_j) {
+        $this->getClassForNumericColumnType($fields_meta, $th_class);
+        if ($col_visib && ! $col_visib_j) {
             $th_class[] = 'hide';
         }
 
         $th_class[] = 'column_heading';
+        $th_class[] = 'sticky';
         if ($GLOBALS['cfg']['BrowsePointerEnable'] == true) {
             $th_class[] = 'pointer';
         }
@@ -2228,40 +2133,41 @@ class Results
 
         $draggable_html .= ' class="' . implode(' ', $th_class) . '"';
 
-        $draggable_html .= ' data-column="' . htmlspecialchars($fields_meta->name)
+        $draggable_html .= ' data-column="' . htmlspecialchars((string) $fields_meta->name)
             . '">' . $order_link . $comments . '</th>';
 
         return $draggable_html;
-
-    } // end of the '_getDraggableClassForSortableColumns()' function
-
+    }
 
     /**
      * Prepare columns to draggable effect for non sortable columns
      *
-     * @param boolean $col_visib       the column is visible (false)
-     *        array                    the column is not visible (string array)
-     * @param string  $col_visib_j     element of $col_visib array
-     * @param boolean $condition_field whether to add CSS class condition
-     * @param array   $fields_meta     set of field properties
-     * @param string  $comments        the comment for the column
+     * @see getTableHeaders()
      *
-     * @return  string  $draggable_html         html content
+     * @param bool     $col_visib       the column is visible (false)
+     *                                  array                    the column is not visible (string array)
+     * @param string   $col_visib_j     element of $col_visib array
+     * @param bool     $condition_field whether to add CSS class condition
+     * @param stdClass $fields_meta     set of field properties
+     * @param string   $comments        the comment for the column
      *
-     * @access  private
+     * @return string  html content
      *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getDraggableClassForNonSortableColumns(
-        $col_visib, $col_visib_j, $condition_field,
-        $fields_meta, $comments
+    private function getDraggableClassForNonSortableColumns(
+        $col_visib,
+        $col_visib_j,
+        $condition_field,
+        $fields_meta,
+        $comments
     ) {
-
         $draggable_html = '<th';
-        $th_class = array();
+        $th_class = [];
         $th_class[] = 'draggable';
-        $this->_getClassForNumericColumnType($fields_meta, $th_class);
-        if ($col_visib && !$col_visib_j) {
+        $th_class[] = 'sticky';
+        $this->getClassForNumericColumnType($fields_meta, $th_class);
+        if ($col_visib && ! $col_visib_j) {
             $th_class[] = 'hide';
         }
 
@@ -2272,81 +2178,79 @@ class Results
         $draggable_html .= ' class="' . implode(' ', $th_class) . '"';
 
         $draggable_html .= ' data-column="'
-            . htmlspecialchars($fields_meta->name) . '">';
+            . htmlspecialchars((string) $fields_meta->name) . '">';
 
-        $draggable_html .= htmlspecialchars($fields_meta->name);
+        $draggable_html .= htmlspecialchars((string) $fields_meta->name);
 
         $draggable_html .= "\n" . $comments . '</th>';
 
         return $draggable_html;
-
-    } // end of the '_getDraggableClassForNonSortableColumns()' function
-
+    }
 
     /**
      * Prepare column to show at right side - check boxes or empty column
      *
-     * @param array  &$displayParts             which elements to display
+     * @see getTableHeaders()
+     *
+     * @param array  $displayParts              which elements to display
      * @param string $full_or_partial_text_link full/partial link or text button
      * @param string $colspan                   column span of table header
      *
-     * @return  string  html content
+     * @return string  html content
      *
-     * @access  private
-     *
-     * @see     _getTableHeaders()
+     * @access private
      */
-    private function _getColumnAtRightSide(
-        array &$displayParts, $full_or_partial_text_link, $colspan
+    private function getColumnAtRightSide(
+        array &$displayParts,
+        $full_or_partial_text_link,
+        $colspan
     ) {
-
         $right_column_html = '';
-        $display_params = $this->__get('display_params');
+        $display_params = $this->properties['display_params'];
 
         // Displays the needed checkboxes at the right
         // column of the result table header if possible and required...
-        if ((($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_RIGHT)
-            || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH))
+        if (($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_RIGHT)
+            || ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_BOTH)
             && (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
             || ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE))
             && ($displayParts['text_btn'] == '1')
         ) {
-
             $display_params['emptyafter']
-                = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)) ? 4 : 1;
+                = ($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
+                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE) ? 4 : 1;
 
             $right_column_html .= "\n"
                 . '<th class="column_action print_ignore" ' . $colspan . '>'
                 . $full_or_partial_text_link
                 . '</th>';
-
-        } elseif ((($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_LEFT)
-            || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH))
-            && (($displayParts['edit_lnk'] == self::NO_EDIT_OR_DELETE)
-            && ($displayParts['del_lnk'] == self::NO_EDIT_OR_DELETE))
+        } elseif (($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_LEFT)
+            || ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_BOTH)
+            && (($displayParts['edit_lnk'] === self::NO_EDIT_OR_DELETE)
+            && ($displayParts['del_lnk'] === self::NO_EDIT_OR_DELETE))
             && (! isset($GLOBALS['is_header_sent']) || ! $GLOBALS['is_header_sent'])
         ) {
             //     ... elseif no button, displays empty columns if required
             // (unless coming from Browse mode print view)
 
             $display_params['emptyafter']
-                = (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
-                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)) ? 4 : 1;
+                = ($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
+                && ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE) ? 4 : 1;
 
             $right_column_html .= "\n" . '<td class="print_ignore" ' . $colspan
                 . '></td>';
         }
 
-        $this->__set('display_params', $display_params);
+        $this->properties['display_params'] = $display_params;
 
         return $right_column_html;
-
-    } // end of the '_getColumnAtRightSide()' function
-
+    }
 
     /**
      * Prepares the display for a value
+     *
+     * @see     getDataCellForGeometryColumns(),
+     *          getDataCellForNonNumericColumns()
      *
      * @param string $class          class of table cell
      * @param bool   $conditionField whether to add CSS class condition
@@ -2354,14 +2258,11 @@ class Results
      *
      * @return string  the td
      *
-     * @access  private
-     *
-     * @see     _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns()
+     * @access private
      */
-    private function _buildValueDisplay($class, $conditionField, $value)
+    private function buildValueDisplay($class, $conditionField, $value)
     {
-        return Template::get('display/results/value_display')->render([
+        return $this->template->render('display/results/value_display', [
             'class' => $class,
             'condition_field' => $conditionField,
             'value' => $value,
@@ -2371,24 +2272,24 @@ class Results
     /**
      * Prepares the display for a null value
      *
-     * @param string $class          class of table cell
-     * @param bool   $conditionField whether to add CSS class condition
-     * @param object $meta           the meta-information about this field
-     * @param string $align          cell alignment
+     * @see     getDataCellForNumericColumns(),
+     *          getDataCellForGeometryColumns(),
+     *          getDataCellForNonNumericColumns()
+     *
+     * @param string   $class          class of table cell
+     * @param bool     $conditionField whether to add CSS class condition
+     * @param stdClass $meta           the meta-information about this field
+     * @param string   $align          cell alignment
      *
      * @return string  the td
      *
-     * @access  private
-     *
-     * @see     _getDataCellForNumericColumns(),
-     *          _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns()
+     * @access private
      */
-    private function _buildNullDisplay($class, $conditionField, $meta, $align = '')
+    private function buildNullDisplay($class, $conditionField, $meta, $align = '')
     {
-        $classes = $this->_addClass($class, $conditionField, $meta, '');
+        $classes = $this->addClass($class, $conditionField, $meta, '');
 
-        return Template::get('display/results/null_display')->render([
+        return $this->template->render('display/results/null_display', [
             'align' => $align,
             'meta' => $meta,
             'classes' => $classes,
@@ -2398,24 +2299,24 @@ class Results
     /**
      * Prepares the display for an empty value
      *
-     * @param string $class          class of table cell
-     * @param bool   $conditionField whether to add CSS class condition
-     * @param object $meta           the meta-information about this field
-     * @param string $align          cell alignment
+     * @see     getDataCellForNumericColumns(),
+     *          getDataCellForGeometryColumns(),
+     *          getDataCellForNonNumericColumns()
+     *
+     * @param string   $class          class of table cell
+     * @param bool     $conditionField whether to add CSS class condition
+     * @param stdClass $meta           the meta-information about this field
+     * @param string   $align          cell alignment
      *
      * @return string  the td
      *
-     * @access  private
-     *
-     * @see     _getDataCellForNumericColumns(),
-     *          _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns()
+     * @access private
      */
-    private function _buildEmptyDisplay($class, $conditionField, $meta, $align = '')
+    private function buildEmptyDisplay($class, $conditionField, $meta, $align = '')
     {
-        $classes = $this->_addClass($class, $conditionField, $meta, 'nowrap');
+        $classes = $this->addClass($class, $conditionField, $meta, 'nowrap');
 
-        return Template::get('display/results/empty_display')->render([
+        return $this->template->render('display/results/empty_display', [
             'align' => $align,
             'classes' => $classes,
         ]);
@@ -2424,32 +2325,37 @@ class Results
     /**
      * Adds the relevant classes.
      *
-     * @param string        $class                 class of table cell
-     * @param bool          $condition_field       whether to add CSS class
-     *                                             condition
-     * @param object        $meta                  the meta-information about the
-     *                                             field
-     * @param string        $nowrap                avoid wrapping
-     * @param bool          $is_field_truncated    is field truncated (display ...)
-     * @param object|string $transformation_plugin transformation plugin.
-     *                                             Can also be the default function:
-     *                                             Core::mimeDefaultFunction
-     * @param string        $default_function      default transformation function
+     * @see buildNullDisplay(), getRowData()
      *
-     * @return string  the list of classes
+     * @param string                       $class                 class of table cell
+     * @param bool                         $condition_field       whether to add CSS class
+     *                                                            condition
+     * @param stdClass                     $meta                  the meta-information about the
+     *                                                            field
+     * @param string                       $nowrap                avoid wrapping
+     * @param bool                         $is_field_truncated    is field truncated (display ...)
+     * @param TransformationsPlugin|string $transformation_plugin transformation plugin.
+     *                                                            Can also be the default function:
+     *                                                            Core::mimeDefaultFunction
+     * @param string                       $default_function      default transformation function
      *
-     * @access  private
+     * @return string the list of classes
      *
-     * @see     _buildNullDisplay(), _getRowData()
+     * @access private
      */
-    private function _addClass(
-        $class, $condition_field, $meta, $nowrap, $is_field_truncated = false,
-        $transformation_plugin = '', $default_function = ''
+    private function addClass(
+        $class,
+        $condition_field,
+        $meta,
+        $nowrap,
+        $is_field_truncated = false,
+        $transformation_plugin = '',
+        $default_function = ''
     ) {
-        $classes = array(
+        $classes = [
             $class,
             $nowrap,
-        );
+        ];
 
         if (isset($meta->mimetype)) {
             $classes[] = preg_replace('/\//', '_', $meta->mimetype);
@@ -2463,26 +2369,28 @@ class Results
             $classes[] = 'truncated';
         }
 
-        $mime_map = $this->__get('mime_map');
-        $orgFullColName = $this->__get('db') . '.' . $meta->orgtable
+        $mime_map = $this->properties['mime_map'];
+        $orgFullColName = $this->properties['db'] . '.' . $meta->orgtable
             . '.' . $meta->orgname;
         if ($transformation_plugin != $default_function
-            || !empty($mime_map[$orgFullColName]['input_transformation'])
+            || ! empty($mime_map[$orgFullColName]['input_transformation'])
         ) {
             $classes[] = 'transformed';
         }
 
         // Define classes to be added to this data field based on the type of data
-        $matches = array(
+        $matches = [
             'enum' => 'enum',
             'set' => 'set',
             'binary' => 'hex',
-        );
+        ];
 
         foreach ($matches as $key => $value) {
-            if (mb_strpos($meta->flags, $key) !== false) {
-                $classes[] = $value;
+            if (mb_strpos($meta->flags, $key) === false) {
+                continue;
             }
+
+            $classes[] = $value;
         }
 
         if (mb_strpos($meta->type, 'bit') !== false) {
@@ -2490,78 +2398,80 @@ class Results
         }
 
         return implode(' ', $classes);
-    } // end of the '_addClass()' function
+    }
 
     /**
      * Prepare the body of the results table
      *
-     * @param integer &$dt_result           the link id associated to the query
-     *                                      which results have to be displayed which
-     *                                      results have to be displayed
-     * @param array   &$displayParts        which elements to display
-     * @param array   $map                  the list of relations
-     * @param array   $analyzed_sql_results analyzed sql results
-     * @param boolean $is_limited_display   with limited operations or not
+     * @see     getTable()
      *
-     * @return string $table_body_html  html content
+     * @param int   $dt_result            the link id associated to the query
+     *                                    which results have to be displayed
+     * @param array $displayParts         which elements to display
+     * @param array $map                  the list of relations
+     * @param array $analyzed_sql_results analyzed sql results
+     * @param bool  $is_limited_display   with limited operations or not
+     *
+     * @return string  html content
      *
      * @global array  $row                  current row data
-     *
-     * @access  private
-     *
-     * @see     getTable()
+     * @access private
      */
-    private function _getTableBody(
-        &$dt_result, array &$displayParts, array $map, array $analyzed_sql_results,
+    private function getTableBody(
+        &$dt_result,
+        array &$displayParts,
+        array $map,
+        array $analyzed_sql_results,
         $is_limited_display = false
     ) {
+        global $dbi;
 
-        global $row; // mostly because of browser transformations,
-                     // to make the row-data accessible in a plugin
+        // Mostly because of browser transformations, to make the row-data accessible in a plugin.
+        global $row;
 
         $table_body_html = '';
 
         // query without conditions to shorten URLs when needed, 200 is just
         // guess, it should depend on remaining URL length
-        $url_sql_query = $this->_getUrlSqlQuery($analyzed_sql_results);
+        $url_sql_query = $this->getUrlSqlQuery($analyzed_sql_results);
 
-        $display_params = $this->__get('display_params');
+        $display_params = $this->properties['display_params'];
 
         if (! is_array($map)) {
-            $map = array();
+            $map = [];
         }
 
         $row_no                       = 0;
-        $display_params['edit']       = array();
-        $display_params['copy']       = array();
-        $display_params['delete']     = array();
-        $display_params['data']       = array();
-        $display_params['row_delete'] = array();
-        $this->__set('display_params', $display_params);
+        $display_params['edit']       = [];
+        $display_params['copy']       = [];
+        $display_params['delete']     = [];
+        $display_params['data']       = [];
+        $display_params['row_delete'] = [];
+        $this->properties['display_params'] = $display_params;
 
         // name of the class added to all grid editable elements;
         // if we don't have all the columns of a unique key in the result set,
         //  do not permit grid editing
-        if ($is_limited_display || ! $this->__get('editable')) {
+        if ($is_limited_display || ! $this->properties['editable']) {
             $grid_edit_class = '';
         } else {
             switch ($GLOBALS['cfg']['GridEditing']) {
-            case 'double-click':
-                // trying to reduce generated HTML by using shorter
-                // classes like click1 and click2
-                $grid_edit_class = 'grid_edit click2';
-                break;
-            case 'click':
-                $grid_edit_class = 'grid_edit click1';
-                break;
-            default: // 'disabled'
-                $grid_edit_class = '';
-                break;
+                case 'double-click':
+                    // trying to reduce generated HTML by using shorter
+                    // classes like click1 and click2
+                    $grid_edit_class = 'grid_edit click2';
+                    break;
+                case 'click':
+                    $grid_edit_class = 'grid_edit click1';
+                    break;
+                default: // 'disabled'
+                    $grid_edit_class = '';
+                    break;
             }
         }
 
         // prepare to get the column order, if available
-        list($col_order, $col_visib) = $this->_getColumnParams(
+        [$col_order, $col_visib] = $this->getColumnParams(
             $analyzed_sql_results
         );
 
@@ -2577,19 +2487,18 @@ class Results
         // table being displayed has one or more keys; but to display
         // delete/edit options correctly for tables without keys.
 
-        $whereClauseMap = $this->__get('whereClauseMap');
-        while ($row = $GLOBALS['dbi']->fetchRow($dt_result)) {
-
+        $whereClauseMap = $this->properties['whereClauseMap'];
+        while ($row = $dbi->fetchRow($dt_result)) {
             // add repeating headers
-            if ((($row_no != 0) && ($_SESSION['tmpval']['repeat_cells'] != 0))
-                && !($row_no % $_SESSION['tmpval']['repeat_cells'])
+            if (($row_no != 0) && ($_SESSION['tmpval']['repeat_cells'] != 0)
+                && ! $row_no % $_SESSION['tmpval']['repeat_cells']
             ) {
-                $table_body_html .= $this->_getRepeatingHeaders(
+                $table_body_html .= $this->getRepeatingHeaders(
                     $display_params
                 );
             }
 
-            $tr_class = array();
+            $tr_class = [];
             if ($GLOBALS['cfg']['BrowsePointerEnable'] != true) {
                 $tr_class[] = 'nopointer';
             }
@@ -2604,14 +2513,28 @@ class Results
             // 1. Prepares the row
 
             // In print view these variable needs to be initialized
-            $del_url = $del_str = $edit_anchor_class
-                = $edit_str = $js_conf = $copy_url = $copy_str = $edit_url = null;
+            $del_url = null;
+            $del_str = null;
+            $edit_str = null;
+            $js_conf = null;
+            $copy_url = null;
+            $copy_str = null;
+            $edit_url = null;
+            $editCopyUrlParams = null;
+            $delUrlParams = null;
 
             // 1.2 Defines the URLs for the modify/delete link(s)
 
             if (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
                 || ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)
             ) {
+                $expressions = [];
+
+                if (isset($analyzed_sql_results['statement'])
+                    && $analyzed_sql_results['statement'] instanceof SelectStatement
+                ) {
+                    $expressions = $analyzed_sql_results['statement']->expr;
+                }
 
                 // Results from a "SELECT" statement -> builds the
                 // WHERE clause to use in links (a unique key if possible)
@@ -2620,70 +2543,99 @@ class Results
                  *       with only one field and it's a BLOB; in this case,
                  *       avoid to display the delete and edit links
                  */
-                list($where_clause, $clause_is_unique, $condition_array)
-                    = Util::getUniqueCondition(
-                        $dt_result, // handle
-                        $this->__get('fields_cnt'), // fields_cnt
-                        $this->__get('fields_meta'), // fields_meta
-                        $row, // row
-                        false, // force_unique
-                        $this->__get('table'), // restrict_to_table
-                        $analyzed_sql_results // analyzed_sql_results
-                    );
-                $whereClauseMap[$row_no][$this->__get('table')] = $where_clause;
-                $this->__set('whereClauseMap', $whereClauseMap);
-
-                $where_clause_html = htmlspecialchars($where_clause);
+                [$where_clause, $clause_is_unique, $condition_array] = Util::getUniqueCondition(
+                    $dt_result,
+                    $this->properties['fields_cnt'],
+                    $this->properties['fields_meta'],
+                    $row,
+                    false,
+                    $this->properties['table'],
+                    $expressions
+                );
+                $whereClauseMap[$row_no][$this->properties['table']] = $where_clause;
+                $this->properties['whereClauseMap'] = $whereClauseMap;
 
                 // 1.2.1 Modify link(s) - update row case
-                if ($displayParts['edit_lnk'] == self::UPDATE_ROW) {
-
-                    list($edit_url, $copy_url, $edit_str, $copy_str,
-                        $edit_anchor_class)
-                            = $this->_getModifiedLinks(
+                if ($displayParts['edit_lnk'] === self::UPDATE_ROW) {
+                    [
+                        $edit_url,
+                        $copy_url,
+                        $edit_str,
+                        $copy_str,
+                        $editCopyUrlParams,
+                    ]
+                            = $this->getModifiedLinks(
                                 $where_clause,
-                                $clause_is_unique, $url_sql_query
+                                $clause_is_unique,
+                                $url_sql_query
                             );
-
-                } // end if (1.2.1)
+                }
 
                 // 1.2.2 Delete/Kill link(s)
-                list($del_url, $del_str, $js_conf)
-                    = $this->_getDeleteAndKillLinks(
-                        $where_clause, $clause_is_unique,
-                        $url_sql_query, $displayParts['del_lnk'],
+                [$del_url, $del_str, $js_conf, $delUrlParams]
+                    = $this->getDeleteAndKillLinks(
+                        $where_clause,
+                        $clause_is_unique,
+                        $url_sql_query,
+                        $displayParts['del_lnk'],
                         $row
                     );
 
                 // 1.3 Displays the links at left if required
-                if (($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_LEFT)
-                    || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH)
+                if (($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_LEFT)
+                    || ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_BOTH)
                 ) {
-
-                    $table_body_html .= $this->_getPlacedLinks(
-                        self::POSITION_LEFT, $del_url, $displayParts, $row_no,
-                        $where_clause, $where_clause_html, $condition_array,
-                        $edit_url, $copy_url, $edit_anchor_class,
-                        $edit_str, $copy_str, $del_str, $js_conf
-                    );
-
-                } elseif ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_NONE) {
-
-                    $table_body_html .= $this->_getPlacedLinks(
-                        self::POSITION_NONE, $del_url, $displayParts, $row_no,
-                        $where_clause, $where_clause_html, $condition_array,
-                        $edit_url, $copy_url, $edit_anchor_class,
-                        $edit_str, $copy_str, $del_str, $js_conf
-                    );
-
-                } // end if (1.3)
-            } // end if (1)
+                    $table_body_html .= $this->template->render('display/results/checkbox_and_links', [
+                        'position' => self::POSITION_LEFT,
+                        'has_checkbox' => ! empty($del_url) && $displayParts['del_lnk'] !== self::KILL_PROCESS,
+                        'edit' => [
+                            'url' => $edit_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'update'],
+                            'string' => $edit_str,
+                            'clause_is_unique' => $clause_is_unique,
+                        ],
+                        'copy' => [
+                            'url' => $copy_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'insert'],
+                            'string' => $copy_str,
+                        ],
+                        'delete' => ['url' => $del_url, 'params' => $delUrlParams, 'string' => $del_str],
+                        'row_number' => $row_no,
+                        'where_clause' => $where_clause,
+                        'condition' => json_encode($condition_array),
+                        'is_ajax' => Response::getInstance()->isAjax(),
+                        'js_conf' => $js_conf ?? '',
+                    ]);
+                } elseif ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_NONE) {
+                    $table_body_html .= $this->template->render('display/results/checkbox_and_links', [
+                        'position' => self::POSITION_NONE,
+                        'has_checkbox' => ! empty($del_url) && $displayParts['del_lnk'] !== self::KILL_PROCESS,
+                        'edit' => [
+                            'url' => $edit_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'update'],
+                            'string' => $edit_str,
+                            'clause_is_unique' => $clause_is_unique,
+                        ],
+                        'copy' => [
+                            'url' => $copy_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'insert'],
+                            'string' => $copy_str,
+                        ],
+                        'delete' => ['url' => $del_url, 'params' => $delUrlParams, 'string' => $del_str],
+                        'row_number' => $row_no,
+                        'where_clause' => $where_clause,
+                        'condition' => json_encode($condition_array),
+                        'is_ajax' => Response::getInstance()->isAjax(),
+                        'js_conf' => $js_conf ?? '',
+                    ]);
+                }
+            }
 
             // 2. Displays the rows' values
-            if (is_null($this->__get('mime_map'))) {
-                $this->_setMimeMap();
+            if ($this->properties['mime_map'] === null) {
+                $this->setMimeMap();
             }
-            $table_body_html .= $this->_getRowValues(
+            $table_body_html .= $this->getRowValues(
                 $dt_result,
                 $row,
                 $row_no,
@@ -2699,281 +2651,296 @@ class Results
             if (($displayParts['edit_lnk'] != self::NO_EDIT_OR_DELETE)
                 || ($displayParts['del_lnk'] != self::NO_EDIT_OR_DELETE)
             ) {
-                if (($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_RIGHT)
-                    || ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_BOTH)
+                if (($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_RIGHT)
+                    || ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_BOTH)
                 ) {
-
-                    $table_body_html .= $this->_getPlacedLinks(
-                        self::POSITION_RIGHT, $del_url, $displayParts, $row_no,
-                        $where_clause, $where_clause_html, $condition_array,
-                        $edit_url, $copy_url, $edit_anchor_class,
-                        $edit_str, $copy_str, $del_str, $js_conf
-                    );
-
+                    $table_body_html .= $this->template->render('display/results/checkbox_and_links', [
+                        'position' => self::POSITION_RIGHT,
+                        'has_checkbox' => ! empty($del_url) && $displayParts['del_lnk'] !== self::KILL_PROCESS,
+                        'edit' => [
+                            'url' => $edit_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'update'],
+                            'string' => $edit_str,
+                            'clause_is_unique' => $clause_is_unique ?? true,
+                        ],
+                        'copy' => [
+                            'url' => $copy_url,
+                            'params' => $editCopyUrlParams + ['default_action' => 'insert'],
+                            'string' => $copy_str,
+                        ],
+                        'delete' => ['url' => $del_url, 'params' => $delUrlParams, 'string' => $del_str],
+                        'row_number' => $row_no,
+                        'where_clause' => $where_clause ?? '',
+                        'condition' => json_encode($condition_array ?? []),
+                        'is_ajax' => Response::getInstance()->isAjax(),
+                        'js_conf' => $js_conf ?? '',
+                    ]);
                 }
-            } // end if (3)
+            }
 
             $table_body_html .= '</tr>';
             $table_body_html .= "\n";
             $row_no++;
-
-        } // end while
+        }
 
         return $table_body_html;
-
-    } // end of the '_getTableBody()' function
+    }
 
     /**
      * Sets the MIME details of the columns in the results set
      *
      * @return void
      */
-    private function _setMimeMap()
+    private function setMimeMap()
     {
-        $fields_meta = $this->__get('fields_meta');
-        $mimeMap = array();
-        $added = array();
+        $fields_meta = $this->properties['fields_meta'];
+        $mimeMap = [];
+        $added = [];
 
-        for ($currentColumn = 0;
-                $currentColumn < $this->__get('fields_cnt');
-                ++$currentColumn) {
-
+        for ($currentColumn = 0; $currentColumn < $this->properties['fields_cnt']; ++$currentColumn) {
             $meta = $fields_meta[$currentColumn];
-            $orgFullTableName = $this->__get('db') . '.' . $meta->orgtable;
+            $orgFullTableName = $this->properties['db'] . '.' . $meta->orgtable;
 
-            if ($GLOBALS['cfgRelation']['commwork']
-                && $GLOBALS['cfgRelation']['mimework']
-                && $GLOBALS['cfg']['BrowseMIME']
-                && ! $_SESSION['tmpval']['hide_transformation']
-                && empty($added[$orgFullTableName])
+            if (! $GLOBALS['cfgRelation']['commwork']
+                || ! $GLOBALS['cfgRelation']['mimework']
+                || ! $GLOBALS['cfg']['BrowseMIME']
+                || $_SESSION['tmpval']['hide_transformation']
+                || ! empty($added[$orgFullTableName])
             ) {
-                $mimeMap = array_merge(
-                    $mimeMap,
-                    Transformations::getMIME($this->__get('db'), $meta->orgtable, false, true)
-                );
-                $added[$orgFullTableName] = true;
+                continue;
             }
+
+            $mimeMap = array_merge(
+                $mimeMap,
+                $this->transformations->getMime($this->properties['db'], $meta->orgtable, false, true) ?? []
+            );
+            $added[$orgFullTableName] = true;
         }
 
         // special browser transformation for some SHOW statements
-        if ($this->__get('is_show')
+        if ($this->properties['is_show']
             && ! $_SESSION['tmpval']['hide_transformation']
         ) {
             preg_match(
                 '@^SHOW[[:space:]]+(VARIABLES|(FULL[[:space:]]+)?'
                 . 'PROCESSLIST|STATUS|TABLE|GRANTS|CREATE|LOGS|DATABASES|FIELDS'
                 . ')@i',
-                $this->__get('sql_query'), $which
+                $this->properties['sql_query'],
+                $which
             );
 
             if (isset($which[1])) {
                 $str = ' ' . strtoupper($which[1]);
                 $isShowProcessList = strpos($str, 'PROCESSLIST') > 0;
                 if ($isShowProcessList) {
-                    $mimeMap['..Info'] = array(
+                    $mimeMap['..Info'] = [
                         'mimetype' => 'Text_Plain',
                         'transformation' => 'output/Text_Plain_Sql.php',
-                    );
+                    ];
                 }
 
                 $isShowCreateTable = preg_match(
-                    '@CREATE[[:space:]]+TABLE@i', $this->__get('sql_query')
+                    '@CREATE[[:space:]]+TABLE@i',
+                    $this->properties['sql_query']
                 );
                 if ($isShowCreateTable) {
-                    $mimeMap['..Create Table'] = array(
+                    $mimeMap['..Create Table'] = [
                         'mimetype' => 'Text_Plain',
                         'transformation' => 'output/Text_Plain_Sql.php',
-                    );
+                    ];
                 }
             }
         }
 
-        $this->__set('mime_map', $mimeMap);
+        $this->properties['mime_map'] = $mimeMap;
     }
 
     /**
      * Get the values for one data row
      *
-     * @param integer              &$dt_result           the link id associated to
-     *                                                   the query which results
-     *                                                   have to be displayed which
-     *                                                   results have to be
-     *                                                   displayed
-     * @param array                $row                  current row data
-     * @param integer              $row_no               the index of current row
-     * @param array|boolean        $col_order            the column order false when
-     *                                                   a property not found false
-     *                                                   when a property not found
-     * @param array                $map                  the list of relations
-     * @param string               $grid_edit_class      the class for all editable
-     *                                                   columns
-     * @param boolean|array|string $col_visib            column is visible(false);
-     *                                                   column isn't visible(string
-     *                                                   array)
-     * @param string               $url_sql_query        the analyzed sql query
-     * @param array                $analyzed_sql_results analyzed sql results
+     * @see     getTableBody()
      *
-     * @return  string $row_values_html  html content
+     * @param int               $dt_result            the link id associated to the query
+     *                                                which results have to be displayed
+     * @param array             $row                  current row data
+     * @param int               $row_no               the index of current row
+     * @param array|false       $col_order            the column order false when
+     *                                                a property not found false
+     *                                                when a property not found
+     * @param array             $map                  the list of relations
+     * @param string            $grid_edit_class      the class for all editable
+     *                                                columns
+     * @param bool|array|string $col_visib            column is visible(false);
+     *                                                column isn't visible(string
+     *                                                array)
+     * @param string            $url_sql_query        the analyzed sql query
+     * @param array             $analyzed_sql_results analyzed sql results
      *
-     * @access  private
+     * @return string  html content
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getRowValues(
-        &$dt_result, array $row, $row_no, $col_order, array $map,
-        $grid_edit_class, $col_visib,
-        $url_sql_query, array $analyzed_sql_results
+    private function getRowValues(
+        &$dt_result,
+        array $row,
+        $row_no,
+        $col_order,
+        array $map,
+        $grid_edit_class,
+        $col_visib,
+        $url_sql_query,
+        array $analyzed_sql_results
     ) {
         $row_values_html = '';
 
         // Following variable are needed for use in isset/empty or
         // use with array indexes/safe use in foreach
-        $sql_query = $this->__get('sql_query');
-        $fields_meta = $this->__get('fields_meta');
-        $highlight_columns = $this->__get('highlight_columns');
-        $mime_map = $this->__get('mime_map');
+        $sql_query = $this->properties['sql_query'];
+        $fields_meta = $this->properties['fields_meta'];
+        $highlight_columns = $this->properties['highlight_columns'];
+        $mime_map = $this->properties['mime_map'];
 
-        $row_info = $this->_getRowInfoForSpecialLinks($row, $col_order);
+        $row_info = $this->getRowInfoForSpecialLinks($row, $col_order);
 
-        $whereClauseMap = $this->__get('whereClauseMap');
+        $whereClauseMap = $this->properties['whereClauseMap'];
 
-        $columnCount = $this->__get('fields_cnt');
-        for ($currentColumn = 0;
-                $currentColumn < $columnCount;
-                ++$currentColumn) {
+        $columnCount = $this->properties['fields_cnt'];
 
+        // Load SpecialSchemaLinks for all rows
+        $specialSchemaLinks = SpecialSchemaLinks::get();
+
+        for ($currentColumn = 0; $currentColumn < $columnCount; ++$currentColumn) {
             // assign $i with appropriate column order
-            $i = $col_order ? $col_order[$currentColumn] : $currentColumn;
+            $i = is_array($col_order) ? $col_order[$currentColumn] : $currentColumn;
 
             $meta    = $fields_meta[$i];
             $orgFullColName
-                = $this->__get('db') . '.' . $meta->orgtable . '.' . $meta->orgname;
+                = $this->properties['db'] . '.' . $meta->orgtable . '.' . $meta->orgname;
 
             $not_null_class = $meta->not_null ? 'not_null' : '';
             $relation_class = isset($map[$meta->name]) ? 'relation' : '';
-            $hide_class = ($col_visib && ! $col_visib[$currentColumn])
+            $hide_class = is_array($col_visib) && isset($col_visib[$currentColumn]) && ! $col_visib[$currentColumn]
                 ? 'hide'
                 : '';
             $grid_edit = $meta->orgtable != '' ? $grid_edit_class : '';
 
             // handle datetime-related class, for grid editing
             $field_type_class
-                = $this->_getClassForDateTimeRelatedFields($meta->type);
+                = $this->getClassForDateTimeRelatedFields($meta->type);
 
             $is_field_truncated = false;
             // combine all the classes applicable to this column's value
-            $class = $this->_getClassesForColumn(
-                $grid_edit, $not_null_class, $relation_class,
-                $hide_class, $field_type_class
+            $class = $this->getClassesForColumn(
+                $grid_edit,
+                $not_null_class,
+                $relation_class,
+                $hide_class,
+                $field_type_class
             );
 
             //  See if this column should get highlight because it's used in the
             //  where-query.
-            $condition_field = (isset($highlight_columns)
+            $condition_field = isset($highlight_columns)
                 && (isset($highlight_columns[$meta->name])
-                || isset($highlight_columns[Util::backquote($meta->name)])))
-                ? true
-                : false;
+                || isset($highlight_columns[Util::backquote($meta->name)]));
 
             // Wrap MIME-transformations. [MIME]
-            $default_function = [Core::class, 'mimeDefaultFunction']; // default_function
+            $default_function = [
+                Core::class,
+                'mimeDefaultFunction',
+            ]; // default_function
             $transformation_plugin = $default_function;
-            $transform_options = array();
+            $transform_options = [];
 
             if ($GLOBALS['cfgRelation']['mimework']
                 && $GLOBALS['cfg']['BrowseMIME']
             ) {
-
                 if (isset($mime_map[$orgFullColName]['mimetype'])
-                    && !empty($mime_map[$orgFullColName]['transformation'])
+                    && ! empty($mime_map[$orgFullColName]['transformation'])
                 ) {
-
                     $file = $mime_map[$orgFullColName]['transformation'];
                     $include_file = 'libraries/classes/Plugins/Transformations/' . $file;
 
-                    if (@file_exists($include_file)) {
+                    if (@file_exists(ROOT_PATH . $include_file)) {
+                        $class_name = $this->transformations->getClassName($include_file);
+                        if (class_exists($class_name)) {
+                            // todo add $plugin_manager
+                            $plugin_manager = null;
+                            $transformation_plugin = new $class_name(
+                                $plugin_manager
+                            );
 
-                        include_once $include_file;
-                        $class_name = Transformations::getClassName($include_file);
-                        // todo add $plugin_manager
-                        $plugin_manager = null;
-                        $transformation_plugin = new $class_name(
-                            $plugin_manager
-                        );
+                            $transform_options = $this->transformations->getOptions(
+                                $mime_map[$orgFullColName]['transformation_options'] ?? ''
+                            );
 
-                        $transform_options = Transformations::getOptions(
-                            isset(
-                                $mime_map[$orgFullColName]
-                                ['transformation_options']
-                            )
-                            ? $mime_map[$orgFullColName]
-                            ['transformation_options']
-                            : ''
-                        );
-
-                        $meta->mimetype = str_replace(
-                            '_', '/',
-                            $mime_map[$orgFullColName]['mimetype']
-                        );
-
-                    } // end if file_exists
-                } // end if transformation is set
-            } // end if mime/transformation works.
+                            $meta->mimetype = str_replace(
+                                '_',
+                                '/',
+                                $mime_map[$orgFullColName]['mimetype']
+                            );
+                        }
+                    }
+                }
+            }
 
             // Check whether the field needs to display with syntax highlighting
 
-            $dbLower = mb_strtolower($this->__get('db'));
+            $dbLower = mb_strtolower($this->properties['db']);
             $tblLower = mb_strtolower($meta->orgtable);
             $nameLower = mb_strtolower($meta->orgname);
-            if (! empty($this->transformation_info[$dbLower][$tblLower][$nameLower])
+            if (! empty($this->transformationInfo[$dbLower][$tblLower][$nameLower])
+                && isset($row[$i])
                 && (trim($row[$i]) != '')
                 && ! $_SESSION['tmpval']['hide_transformation']
             ) {
-                include_once $this->transformation_info
-                    [$dbLower][$tblLower][$nameLower][0];
-                $transformation_plugin = new $this->transformation_info
-                    [$dbLower][$tblLower][$nameLower][1](null);
+                include_once ROOT_PATH . $this->transformationInfo[$dbLower][$tblLower][$nameLower][0];
+                $transformation_plugin = new $this->transformationInfo[$dbLower][$tblLower][$nameLower][1](null);
 
-                $transform_options = Transformations::getOptions(
-                    isset($mime_map[$orgFullColName]['transformation_options'])
-                    ? $mime_map[$orgFullColName]['transformation_options']
-                    : ''
+                $transform_options = $this->transformations->getOptions(
+                    $mime_map[$orgFullColName]['transformation_options'] ?? ''
                 );
+
+                $orgTable = mb_strtolower($meta->orgtable);
+                $orgName = mb_strtolower($meta->orgname);
 
                 $meta->mimetype = str_replace(
-                    '_', '/',
-                    $this->transformation_info[$dbLower]
-                    [mb_strtolower($meta->orgtable)]
-                    [mb_strtolower($meta->orgname)][2]
+                    '_',
+                    '/',
+                    $this->transformationInfo[$dbLower][$orgTable][$orgName][2]
                 );
-
             }
 
             // Check for the predefined fields need to show as link in schemas
-            include_once 'libraries/special_schema_links.inc.php';
-
-            if (isset($GLOBALS['special_schema_links'])
-                && (! empty($GLOBALS['special_schema_links'][$dbLower][$tblLower][$nameLower]))
-            ) {
-
-                $linking_url = $this->_getSpecialLinkUrl(
-                    $row[$i], $row_info, mb_strtolower($meta->orgname)
+            if (! empty($specialSchemaLinks[$dbLower][$tblLower][$nameLower])) {
+                $linking_url = $this->getSpecialLinkUrl(
+                    $specialSchemaLinks[$dbLower][$tblLower][$nameLower],
+                    $row[$i],
+                    $row_info
                 );
                 $transformation_plugin = new Text_Plain_Link();
 
-                $transform_options  = array(
+                $transform_options  = [
                     0 => $linking_url,
-                    2 => true
-                );
+                    2 => true,
+                ];
 
                 $meta->mimetype = str_replace(
-                    '_', '/',
+                    '_',
+                    '/',
                     'Text/Plain'
                 );
-
             }
 
-            /*
+            $expressions = [];
+
+            if (isset($analyzed_sql_results['statement'])
+                && $analyzed_sql_results['statement'] instanceof SelectStatement
+            ) {
+                $expressions = $analyzed_sql_results['statement']->expr;
+            }
+
+            /**
              * The result set can have columns from more than one table,
              * this is why we have to check for the unique conditions
              * related to this table; however getUniqueCondition() is
@@ -2982,42 +2949,46 @@ class Results
              */
             if (! isset($whereClauseMap[$row_no][$meta->orgtable])) {
                 $unique_conditions = Util::getUniqueCondition(
-                    $dt_result, // handle
-                    $this->__get('fields_cnt'), // fields_cnt
-                    $this->__get('fields_meta'), // fields_meta
-                    $row, // row
-                    false, // force_unique
-                    $meta->orgtable, // restrict_to_table
-                    $analyzed_sql_results // analyzed_sql_results
+                    $dt_result,
+                    $this->properties['fields_cnt'],
+                    $this->properties['fields_meta'],
+                    $row,
+                    false,
+                    $meta->orgtable,
+                    $expressions
                 );
                 $whereClauseMap[$row_no][$meta->orgtable] = $unique_conditions[0];
             }
 
-            $_url_params = array(
-                'db'            => $this->__get('db'),
+            $_url_params = [
+                'db'            => $this->properties['db'],
                 'table'         => $meta->orgtable,
+                'where_clause_sign' => Core::signSqlQuery($whereClauseMap[$row_no][$meta->orgtable]),
                 'where_clause'  => $whereClauseMap[$row_no][$meta->orgtable],
-                'transform_key' => $meta->orgname
-            );
+                'transform_key' => $meta->orgname,
+            ];
 
             if (! empty($sql_query)) {
                 $_url_params['sql_query'] = $url_sql_query;
             }
 
             $transform_options['wrapper_link'] = Url::getCommon($_url_params);
+            $transform_options['wrapper_params'] = $_url_params;
 
-            $display_params = $this->__get('display_params');
+            $display_params = $this->properties['display_params'];
 
             // in some situations (issue 11406), numeric returns 1
             // even for a string type
             // for decimal numeric is returning 1
             // have to improve logic
-            if (($meta->numeric == 1 && $meta->type != 'string') || $meta->type == 'real') {
+            // Nullable text fields and text fields have the blob flag (issue 16896)
+            $isNumericAndNotBlob = $meta->numeric == 1 && $meta->blob == 0;
+            if (($isNumericAndNotBlob && $meta->type !== 'string') || $meta->type === 'real') {
                 // n u m e r i c
 
                 $display_params['data'][$row_no][$i]
-                    = $this->_getDataCellForNumericColumns(
-                        $row[$i],
+                    = $this->getDataCellForNumericColumns(
+                        $row[$i] === null ? null : (string) $row[$i],
                         $class,
                         $condition_field,
                         $meta,
@@ -3028,8 +2999,7 @@ class Results
                         $default_function,
                         $transform_options
                     );
-
-            } elseif ($meta->type == self::GEOMETRY_FIELD) {
+            } elseif ($meta->type === self::GEOMETRY_FIELD) {
                 // g e o m e t r y
 
                 // Remove 'grid_edit' from $class as we do not allow to
@@ -3037,8 +3007,8 @@ class Results
                 $class = str_replace('grid_edit', '', $class);
 
                 $display_params['data'][$row_no][$i]
-                    = $this->_getDataCellForGeometryColumns(
-                        $row[$i],
+                    = $this->getDataCellForGeometryColumns(
+                        $row[$i] === null ? null : (string) $row[$i],
                         $class,
                         $meta,
                         $map,
@@ -3049,13 +3019,12 @@ class Results
                         $transform_options,
                         $analyzed_sql_results
                     );
-
             } else {
                 // n o t   n u m e r i c
 
                 $display_params['data'][$row_no][$i]
-                    = $this->_getDataCellForNonNumericColumns(
-                        $row[$i],
+                    = $this->getDataCellForNonNumericColumns(
+                        $row[$i] === null ? null : (string) $row[$i],
                         $class,
                         $meta,
                         $map,
@@ -3069,7 +3038,6 @@ class Results
                         $dt_result,
                         $i
                     );
-
             }
 
             // output stored cell
@@ -3083,42 +3051,38 @@ class Results
                     = $display_params['data'][$row_no][$i];
             }
 
-            $this->__set('display_params', $display_params);
-
-        } // end for
+            $this->properties['display_params'] = $display_params;
+        }
 
         return $row_values_html;
-
-    } // end of the '_getRowValues()' function
+    }
 
     /**
      * Get link for display special schema links
      *
-     * @param string $column_value column value
-     * @param array  $row_info     information about row
-     * @param string $field_name   column name
+     * @param array<string,array<int,array<string,string>>|string> $link_relations
+     * @param string                                               $column_value   column value
+     * @param array                                                $row_info       information about row
      *
      * @return string generated link
+     *
+     * @phpstan-param array{
+     *                         'link_param': string,
+     *                         'link_dependancy_params'?: array<
+     *                                                      int,
+     *                                                      array{'param_info': string, 'column_name': string}
+     *                                                     >,
+     *                         'default_page': string
+     *                     } $link_relations
      */
-    private function _getSpecialLinkUrl($column_value, array $row_info, $field_name)
-    {
+    private function getSpecialLinkUrl(
+        array $link_relations,
+        $column_value,
+        array $row_info
+    ) {
+        $linking_url_params = [];
 
-        $linking_url_params = array();
-        $link_relations = $GLOBALS['special_schema_links']
-            [mb_strtolower($this->__get('db'))]
-            [mb_strtolower($this->__get('table'))]
-            [$field_name];
-
-        if (! is_array($link_relations['link_param'])) {
-            $linking_url_params[$link_relations['link_param']] = $column_value;
-        } else {
-            // Consider only the case of creating link for column field
-            // sql query that needs to be passed as url param
-            $sql = 'SELECT `' . $column_value . '` FROM `'
-                . $row_info[$link_relations['link_param'][1]] . '`.`'
-                . $row_info[$link_relations['link_param'][2]] . '`';
-            $linking_url_params[$link_relations['link_param'][0]] = $sql;
-        }
+        $linking_url_params[$link_relations['link_param']] = $column_value;
 
         $divider = strpos($link_relations['default_page'], '?') ? '&' : '?';
         if (empty($link_relations['link_dependancy_params'])) {
@@ -3127,17 +3091,13 @@ class Results
         }
 
         foreach ($link_relations['link_dependancy_params'] as $new_param) {
+            $columnName = mb_strtolower($new_param['column_name']);
 
-            // If param_info is an array, set the key and value
-            // from that array
-            if (is_array($new_param['param_info'])) {
-                $linking_url_params[$new_param['param_info'][0]]
-                    = $new_param['param_info'][1];
-                continue;
+            // If there is a value for this column name in the row_info provided
+            if (isset($row_info[$columnName])) {
+                $urlParameterName = $new_param['param_info'];
+                $linking_url_params[$urlParameterName] = $row_info[$columnName];
             }
-
-            $linking_url_params[$new_param['param_info']]
-                = $row_info[mb_strtolower($new_param['column_name'])];
 
             // Special case 1 - when executing routines, according
             // to the type of the routine, url param changes
@@ -3150,48 +3110,45 @@ class Results
             . Url::getCommonRaw($linking_url_params, $divider);
     }
 
-
     /**
      * Prepare row information for display special links
      *
-     * @param array         $row       current row data
-     * @param array|boolean $col_order the column order
+     * @param array      $row       current row data
+     * @param array|bool $col_order the column order
      *
-     * @return array $row_info associative array with column nama -> value
+     * @return array associative array with column nama -> value
      */
-    private function _getRowInfoForSpecialLinks(array $row, $col_order)
+    private function getRowInfoForSpecialLinks(array $row, $col_order)
     {
+        $row_info = [];
+        $fields_meta = $this->properties['fields_meta'];
 
-        $row_info = array();
-        $fields_meta = $this->__get('fields_meta');
-
-        for ($n = 0; $n < $this->__get('fields_cnt'); ++$n) {
-            $m = $col_order ? $col_order[$n] : $n;
+        for ($n = 0; $n < $this->properties['fields_cnt']; ++$n) {
+            $m = is_array($col_order) ? $col_order[$n] : $n;
             $row_info[mb_strtolower($fields_meta[$m]->orgname)]
                 = $row[$m];
         }
 
         return $row_info;
-
     }
 
     /**
      * Get url sql query without conditions to shorten URLs
      *
+     * @see     getTableBody()
+     *
      * @param array $analyzed_sql_results analyzed sql results
      *
-     * @return  string  $url_sql        analyzed sql query
+     * @return string analyzed sql query
      *
-     * @access  private
-     *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getUrlSqlQuery(array $analyzed_sql_results)
+    private function getUrlSqlQuery(array $analyzed_sql_results)
     {
-        if (($analyzed_sql_results['querytype'] != 'SELECT')
-            || (mb_strlen($this->__get('sql_query')) < 200)
+        if (($analyzed_sql_results['querytype'] !== 'SELECT')
+            || (mb_strlen($this->properties['sql_query']) < 200)
         ) {
-            return $this->__get('sql_query');
+            return $this->properties['sql_query'];
         }
 
         $query = 'SELECT ' . Query::getClause(
@@ -3206,39 +3163,39 @@ class Results
             'FROM'
         );
 
-        if (!empty($from_clause)) {
+        if (! empty($from_clause)) {
             $query .= ' FROM ' . $from_clause;
         }
 
         return $query;
-
-    } // end of the '_getUrlSqlQuery()' function
-
+    }
 
     /**
      * Get column order and column visibility
      *
+     * @see    getTableBody()
+     *
      * @param array $analyzed_sql_results analyzed sql results
      *
-     * @return  array           2 element array - $col_order, $col_visib
+     * @return array 2 element array - $col_order, $col_visib
      *
-     * @access  private
-     *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getColumnParams(array $analyzed_sql_results)
+    private function getColumnParams(array $analyzed_sql_results)
     {
-        if ($this->_isSelect($analyzed_sql_results)) {
-            $pmatable = new Table($this->__get('table'), $this->__get('db'));
+        if ($this->isSelect($analyzed_sql_results)) {
+            $pmatable = new Table($this->properties['table'], $this->properties['db']);
             $col_order = $pmatable->getUiProp(Table::PROP_COLUMN_ORDER);
             /* Validate the value */
             if ($col_order !== false) {
-                $fields_cnt = $this->__get('fields_cnt');
+                $fields_cnt = $this->properties['fields_cnt'];
                 foreach ($col_order as $value) {
-                    if ($value >= $fields_cnt) {
-                        $pmatable->removeUiProp(Table::PROP_COLUMN_ORDER);
-                        $fields_cnt = false;
+                    if ($value < $fields_cnt) {
+                        continue;
                     }
+
+                    $pmatable->removeUiProp(Table::PROP_COLUMN_ORDER);
+                    $fields_cnt = false;
                 }
             }
             $col_visib = $pmatable->getUiProp(Table::PROP_COLUMN_VISIB);
@@ -3247,33 +3204,33 @@ class Results
             $col_visib = false;
         }
 
-        return array($col_order, $col_visib);
-    } // end of the '_getColumnParams()' function
-
+        return [
+            $col_order,
+            $col_visib,
+        ];
+    }
 
     /**
      * Get HTML for repeating headers
      *
+     * @see    getTableBody()
+     *
      * @param array $display_params holds various display info
      *
-     * @return  string  $header_html    html content
+     * @return string html content
      *
-     * @access  private
-     *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getRepeatingHeaders(
+    private function getRepeatingHeaders(
         array $display_params
     ) {
         $header_html = '<tr>' . "\n";
 
         if ($display_params['emptypre'] > 0) {
-
             $header_html .= '    <th colspan="'
                 . $display_params['emptypre'] . '">'
                 . "\n" . '        &nbsp;</th>' . "\n";
-
-        } elseif ($GLOBALS['cfg']['RowActionLinks'] == self::POSITION_NONE) {
+        } elseif ($GLOBALS['cfg']['RowActionLinks'] === self::POSITION_NONE) {
             $header_html .= '    <th></th>' . "\n";
         }
 
@@ -3290,244 +3247,194 @@ class Results
         $header_html .= '</tr>' . "\n";
 
         return $header_html;
-
-    } // end of the '_getRepeatingHeaders()' function
-
+    }
 
     /**
      * Get modified links
      *
-     * @param string  $where_clause     the where clause of the sql
-     * @param boolean $clause_is_unique the unique condition of clause
-     * @param string  $url_sql_query    the analyzed sql query
+     * @see     getTableBody()
      *
-     * @return  array                   5 element array - $edit_url, $copy_url,
-     *                                  $edit_str, $copy_str, $edit_anchor_class
+     * @param string $where_clause     the where clause of the sql
+     * @param bool   $clause_is_unique the unique condition of clause
+     * @param string $url_sql_query    the analyzed sql query
      *
-     * @access  private
+     * @return array<int,string|array>       5 element array - $edit_url, $copy_url,
+     *                                                   $edit_str, $copy_str
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getModifiedLinks(
-        $where_clause, $clause_is_unique, $url_sql_query
+    private function getModifiedLinks(
+        $where_clause,
+        $clause_is_unique,
+        $url_sql_query
     ) {
+        $_url_params = [
+            'db'               => $this->properties['db'],
+            'table'            => $this->properties['table'],
+            'where_clause'     => $where_clause,
+            'clause_is_unique' => $clause_is_unique,
+            'sql_query'        => $url_sql_query,
+            'goto'             => Url::getFromRoute('/sql'),
+        ];
 
-        $_url_params = array(
-                'db'               => $this->__get('db'),
-                'table'            => $this->__get('table'),
-                'where_clause'     => $where_clause,
-                'clause_is_unique' => $clause_is_unique,
-                'sql_query'        => $url_sql_query,
-                'goto'             => 'sql.php',
-            );
+        $edit_url = Url::getFromRoute('/table/change');
 
-        $edit_url = 'tbl_change.php'
-            . Url::getCommon(
-                $_url_params + array('default_action' => 'update')
-            );
+        $copy_url = Url::getFromRoute('/table/change');
 
-        $copy_url = 'tbl_change.php'
-            . Url::getCommon(
-                $_url_params + array('default_action' => 'insert')
-            );
-
-        $edit_str = $this->_getActionLinkContent(
-            'b_edit', __('Edit')
+        $edit_str = $this->getActionLinkContent(
+            'b_edit',
+            __('Edit')
         );
-        $copy_str = $this->_getActionLinkContent(
-            'b_insrow', __('Copy')
+        $copy_str = $this->getActionLinkContent(
+            'b_insrow',
+            __('Copy')
         );
 
-        // Class definitions required for grid editing jQuery scripts
-        $edit_anchor_class = "edit_row_anchor";
-        if ($clause_is_unique == 0) {
-            $edit_anchor_class .= ' nonunique';
-        }
-
-        return array($edit_url, $copy_url, $edit_str, $copy_str, $edit_anchor_class);
-
-    } // end of the '_getModifiedLinks()' function
-
+        return [
+            $edit_url,
+            $copy_url,
+            $edit_str,
+            $copy_str,
+            $_url_params,
+        ];
+    }
 
     /**
      * Get delete and kill links
      *
-     * @param string  $where_clause     the where clause of the sql
-     * @param boolean $clause_is_unique the unique condition of clause
-     * @param string  $url_sql_query    the analyzed sql query
-     * @param string  $del_lnk          the delete link of current row
-     * @param array   $row              the current row
+     * @see     getTableBody()
      *
-     * @return  array                       3 element array
-     *                                      $del_url, $del_str, $js_conf
+     * @param string $where_clause     the where clause of the sql
+     * @param bool   $clause_is_unique the unique condition of clause
+     * @param string $url_sql_query    the analyzed sql query
+     * @param string $del_lnk          the delete link of current row
+     * @param array  $row              the current row
      *
-     * @access  private
+     * @return array                    3 element array
+     *                                  $del_url, $del_str, $js_conf
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getDeleteAndKillLinks(
-        $where_clause, $clause_is_unique, $url_sql_query, $del_lnk, array $row
+    private function getDeleteAndKillLinks(
+        $where_clause,
+        $clause_is_unique,
+        $url_sql_query,
+        $del_lnk,
+        array $row
     ) {
+        global $dbi;
 
-        $goto = $this->__get('goto');
+        $goto = $this->properties['goto'];
 
-        if ($del_lnk == self::DELETE_ROW) { // delete row case
-
-            $_url_params = array(
-                'db'        => $this->__get('db'),
-                'table'     => $this->__get('table'),
+        if ($del_lnk === self::DELETE_ROW) { // delete row case
+            $_url_params = [
+                'db'        => $this->properties['db'],
+                'table'     => $this->properties['table'],
                 'sql_query' => $url_sql_query,
                 'message_to_show' => __('The row has been deleted.'),
-                'goto'      => (empty($goto) ? 'tbl_sql.php' : $goto),
-            );
+                'goto'      => empty($goto) ? Url::getFromRoute('/table/sql') : $goto,
+            ];
 
-            $lnk_goto = 'sql.php' . Url::getCommonRaw($_url_params);
+            $lnk_goto = Url::getFromRoute('/sql', $_url_params);
 
             $del_query = 'DELETE FROM '
-                . Util::backquote($this->__get('table'))
+                . Util::backquote($this->properties['table'])
                 . ' WHERE ' . $where_clause .
                 ($clause_is_unique ? '' : ' LIMIT 1');
 
-            $_url_params = array(
-                    'db'        => $this->__get('db'),
-                    'table'     => $this->__get('table'),
-                    'sql_query' => $del_query,
-                    'message_to_show' => __('The row has been deleted.'),
-                    'goto'      => $lnk_goto,
-                );
-            $del_url  = 'sql.php' . Url::getCommon($_url_params);
+            $_url_params = [
+                'db'        => $this->properties['db'],
+                'table'     => $this->properties['table'],
+                'sql_query' => $del_query,
+                'message_to_show' => __('The row has been deleted.'),
+                'goto'      => $lnk_goto,
+            ];
+            $del_url  = Url::getFromRoute('/sql');
 
-            $js_conf  = 'DELETE FROM ' . Sanitize::jsFormat($this->__get('table'))
-                . ' WHERE ' . Sanitize::jsFormat($where_clause, false)
+            $js_conf  = 'DELETE FROM ' . $this->properties['table']
+                . ' WHERE ' . $where_clause
                 . ($clause_is_unique ? '' : ' LIMIT 1');
 
-            $del_str = $this->_getActionLinkContent('b_drop', __('Delete'));
+            $del_str = $this->getActionLinkContent('b_drop', __('Delete'));
+        } elseif ($del_lnk === self::KILL_PROCESS) { // kill process case
+            $_url_params = [
+                'db'        => $this->properties['db'],
+                'table'     => $this->properties['table'],
+                'sql_query' => $url_sql_query,
+                'goto'      => Url::getFromRoute('/'),
+            ];
 
-        } elseif ($del_lnk == self::KILL_PROCESS) { // kill process case
+            $lnk_goto = Url::getFromRoute('/sql', $_url_params);
 
-            $_url_params = array(
-                    'db'        => $this->__get('db'),
-                    'table'     => $this->__get('table'),
-                    'sql_query' => $url_sql_query,
-                    'goto'      => 'index.php',
-                );
+            $kill = $dbi->getKillQuery((int) $row[0]);
 
-            $lnk_goto = 'sql.php' . Url::getCommonRaw($_url_params);
+            $_url_params = [
+                'db'        => 'mysql',
+                'sql_query' => $kill,
+                'goto'      => $lnk_goto,
+            ];
 
-            $kill = $GLOBALS['dbi']->getKillQuery($row[0]);
-
-            $_url_params = array(
-                    'db'        => 'mysql',
-                    'sql_query' => $kill,
-                    'goto'      => $lnk_goto,
-                );
-
-            $del_url  = 'sql.php' . Url::getCommon($_url_params);
-            $js_conf  = $kill;
-            $del_str = Util::getIcon(
-                'b_drop', __('Kill')
+            $del_url = Url::getFromRoute('/sql');
+            $js_conf = $kill;
+            $del_str = Generator::getIcon(
+                'b_drop',
+                __('Kill')
             );
         } else {
-            $del_url = $del_str = $js_conf = null;
+            $del_url = $del_str = $js_conf = $_url_params = null;
         }
 
-        return array($del_url, $del_str, $js_conf);
-
-    } // end of the '_getDeleteAndKillLinks()' function
-
+        return [
+            $del_url,
+            $del_str,
+            $js_conf,
+            $_url_params,
+        ];
+    }
 
     /**
      * Get content inside the table row action links (Edit/Copy/Delete)
      *
+     * @see     getModifiedLinks(), getDeleteAndKillLinks()
+     *
      * @param string $icon         The name of the file to get
      * @param string $display_text The text displaying after the image icon
      *
-     * @return  string
+     * @return string
      *
-     * @access  private
-     *
-     * @see     _getModifiedLinks(), _getDeleteAndKillLinks()
+     * @access private
      */
-    private function _getActionLinkContent($icon, $display_text)
+    private function getActionLinkContent($icon, $display_text)
     {
-
         $linkContent = '';
 
         if (isset($GLOBALS['cfg']['RowActionType'])
-            && $GLOBALS['cfg']['RowActionType'] == self::ACTION_LINK_CONTENT_ICONS
+            && $GLOBALS['cfg']['RowActionType'] === self::ACTION_LINK_CONTENT_ICONS
         ) {
-
             $linkContent .= '<span class="nowrap">'
-                . Util::getImage(
-                    $icon, $display_text
+                . Generator::getImage(
+                    $icon,
+                    $display_text
                 )
                 . '</span>';
-
         } elseif (isset($GLOBALS['cfg']['RowActionType'])
-            && $GLOBALS['cfg']['RowActionType'] == self::ACTION_LINK_CONTENT_TEXT
+            && $GLOBALS['cfg']['RowActionType'] === self::ACTION_LINK_CONTENT_TEXT
         ) {
-
             $linkContent .= '<span class="nowrap">' . $display_text . '</span>';
-
         } else {
-
-            $linkContent .= Util::getIcon(
-                $icon, $display_text
+            $linkContent .= Generator::getIcon(
+                $icon,
+                $display_text
             );
-
         }
 
         return $linkContent;
-
     }
-
-
-    /**
-     * Prepare placed links
-     *
-     * @param string  $dir               the direction of links should place
-     * @param string  $del_url           the url for delete row
-     * @param array   $displayParts      which elements to display
-     * @param integer $row_no            the index of current row
-     * @param string  $where_clause      the where clause of the sql
-     * @param string  $where_clause_html the html encoded where clause
-     * @param array   $condition_array   array of keys (primary, unique, condition)
-     * @param string  $edit_url          the url for edit row
-     * @param string  $copy_url          the url for copy row
-     * @param string  $edit_anchor_class the class for html element for edit
-     * @param string  $edit_str          the label for edit row
-     * @param string  $copy_str          the label for copy row
-     * @param string  $del_str           the label for delete row
-     * @param string  $js_conf           text for the JS confirmation
-     *
-     * @return  string                      html content
-     *
-     * @access  private
-     *
-     * @see     _getTableBody()
-     */
-    private function _getPlacedLinks(
-        $dir, $del_url, array $displayParts, $row_no, $where_clause, $where_clause_html,
-        array $condition_array, $edit_url, $copy_url,
-        $edit_anchor_class, $edit_str, $copy_str, $del_str, $js_conf
-    ) {
-
-        if (! isset($js_conf)) {
-            $js_conf = '';
-        }
-
-        return $this->_getCheckboxAndLinks(
-            $dir, $del_url, $displayParts,
-            $row_no, $where_clause, $where_clause_html, $condition_array,
-            $edit_url, $copy_url, $edit_anchor_class,
-            $edit_str, $copy_str, $del_str, $js_conf
-        );
-
-    } // end of the '_getPlacedLinks()' function
-
 
     /**
      * Get the combined classes for a column
+     *
+     * @see     getTableBody()
      *
      * @param string $grid_edit_class  the class for all editable columns
      * @param string $not_null_class   the class for not null columns
@@ -3535,185 +3442,217 @@ class Results
      * @param string $hide_class       the class for visibility of a column
      * @param string $field_type_class the class related to type of the field
      *
-     * @return string $class the combined classes
+     * @return string the combined classes
      *
-     * @access  private
-     *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getClassesForColumn(
-        $grid_edit_class, $not_null_class, $relation_class,
-        $hide_class, $field_type_class
+    private function getClassesForColumn(
+        $grid_edit_class,
+        $not_null_class,
+        $relation_class,
+        $hide_class,
+        $field_type_class
     ) {
-        $class = 'data ' . $grid_edit_class . ' ' . $not_null_class . ' '
+        return 'data ' . $grid_edit_class . ' ' . $not_null_class . ' '
             . $relation_class . ' ' . $hide_class . ' ' . $field_type_class;
-
-        return $class;
-
-    } // end of the '_getClassesForColumn()' function
-
+    }
 
     /**
      * Get class for datetime related fields
      *
+     * @see    getTableBody()
+     *
      * @param string $type the type of the column field
      *
-     * @return  string  $field_type_class   the class for the column
+     * @return string   the class for the column
      *
-     * @access  private
-     *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getClassForDateTimeRelatedFields($type)
+    private function getClassForDateTimeRelatedFields($type)
     {
-        if ((substr($type, 0, 9) == self::TIMESTAMP_FIELD)
-            || ($type == self::DATETIME_FIELD)
+        if ((substr($type, 0, 9) === self::TIMESTAMP_FIELD)
+            || ($type === self::DATETIME_FIELD)
         ) {
             $field_type_class = 'datetimefield';
-        } elseif ($type == self::DATE_FIELD) {
+        } elseif ($type === self::DATE_FIELD) {
             $field_type_class = 'datefield';
-        } elseif ($type == self::TIME_FIELD) {
+        } elseif ($type === self::TIME_FIELD) {
             $field_type_class = 'timefield';
-        } elseif ($type == self::STRING_FIELD) {
+        } elseif ($type === self::STRING_FIELD) {
             $field_type_class = 'text';
         } else {
             $field_type_class = '';
         }
-        return $field_type_class;
-    } // end of the '_getClassForDateTimeRelatedFields()' function
 
+        return $field_type_class;
+    }
 
     /**
      * Prepare data cell for numeric type fields
      *
-     * @param string        $column                the column's value
-     * @param string        $class                 the html class for column
-     * @param boolean       $condition_field       the column should highlighted
-     *                                             or not
-     * @param object        $meta                  the meta-information about this
-     *                                             field
-     * @param array         $map                   the list of relations
-     * @param boolean       $is_field_truncated    the condition for blob data
-     *                                             replacements
-     * @param array         $analyzed_sql_results  the analyzed query
-     * @param object|string $transformation_plugin the name of transformation plugin
-     * @param string        $default_function      the default transformation
-     *                                             function
-     * @param array         $transform_options     the transformation parameters
+     * @see    getTableBody()
      *
-     * @return  string  $cell the prepared cell, html content
+     * @param string|null           $column                the column's value
+     * @param string                $class                 the html class for column
+     * @param bool                  $condition_field       the column should highlighted
+     *                                                     or not
+     * @param stdClass              $meta                  the meta-information about this
+     *                                                     field
+     * @param array                 $map                   the list of relations
+     * @param bool                  $is_field_truncated    the condition for blob data
+     *                                                     replacements
+     * @param array                 $analyzed_sql_results  the analyzed query
+     * @param TransformationsPlugin $transformation_plugin the name of transformation plugin
+     * @param string                $default_function      the default transformation
+     *                                                     function
+     * @param array                 $transform_options     the transformation parameters
      *
-     * @access  private
+     * @return string the prepared cell, html content
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getDataCellForNumericColumns(
-        $column, $class, $condition_field, $meta, array $map, $is_field_truncated,
-        array $analyzed_sql_results, $transformation_plugin, $default_function,
+    private function getDataCellForNumericColumns(
+        ?string $column,
+        $class,
+        $condition_field,
+        $meta,
+        array $map,
+        $is_field_truncated,
+        array $analyzed_sql_results,
+        $transformation_plugin,
+        $default_function,
         array $transform_options
     ) {
-
-        if (! isset($column) || is_null($column)) {
-
-            $cell = $this->_buildNullDisplay(
-                'right ' . $class, $condition_field, $meta, ''
+        if (! isset($column) || $column === null) {
+            $cell = $this->buildNullDisplay(
+                'text-right ' . $class,
+                $condition_field,
+                $meta,
+                ''
             );
-
         } elseif ($column != '') {
-
             $nowrap = ' nowrap';
             $where_comparison = ' = ' . $column;
 
-            $cell = $this->_getRowData(
-                'right ' . $class, $condition_field,
-                $analyzed_sql_results, $meta, $map, $column,
-                $transformation_plugin, $default_function, $nowrap,
-                $where_comparison, $transform_options,
-                $is_field_truncated, ''
+            $cell = $this->getRowData(
+                'text-right ' . $class,
+                $condition_field,
+                $analyzed_sql_results,
+                $meta,
+                $map,
+                $column,
+                $column,
+                $transformation_plugin,
+                $default_function,
+                $nowrap,
+                $where_comparison,
+                $transform_options,
+                $is_field_truncated,
+                ''
             );
         } else {
-
-            $cell = $this->_buildEmptyDisplay(
-                'right ' . $class, $condition_field, $meta, ''
+            $cell = $this->buildEmptyDisplay(
+                'text-right ' . $class,
+                $condition_field,
+                $meta,
+                ''
             );
         }
 
         return $cell;
-
-    } // end of the '_getDataCellForNumericColumns()' function
-
+    }
 
     /**
      * Get data cell for geometry type fields
      *
-     * @param string        $column                the relevant column in data row
-     * @param string        $class                 the html class for column
-     * @param object        $meta                  the meta-information about
-     *                                             this field
-     * @param array         $map                   the list of relations
-     * @param array         $_url_params           the parameters for generate url
-     * @param boolean       $condition_field       the column should highlighted
-     *                                             or not
-     * @param object|string $transformation_plugin the name of transformation
-     *                                             function
-     * @param string        $default_function      the default transformation
-     *                                             function
-     * @param string        $transform_options     the transformation parameters
-     * @param array         $analyzed_sql_results  the analyzed query
+     * @see     getTableBody()
      *
-     * @return  string  $cell                  the prepared data cell, html content
+     * @param string|null           $column                the relevant column in data row
+     * @param string                $class                 the html class for column
+     * @param stdClass              $meta                  the meta-information about
+     *                                                     this field
+     * @param array                 $map                   the list of relations
+     * @param array                 $_url_params           the parameters for generate url
+     * @param bool                  $condition_field       the column should highlighted
+     *                                                     or not
+     * @param TransformationsPlugin $transformation_plugin the name of transformation
+     *                                                     function
+     * @param string                $default_function      the default transformation
+     *                                                     function
+     * @param array                 $transform_options     the transformation parameters
+     * @param array                 $analyzed_sql_results  the analyzed query
      *
-     * @access  private
+     * @return string the prepared data cell, html content
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getDataCellForGeometryColumns(
-        $column, $class, $meta, array $map, array $_url_params, $condition_field,
-        $transformation_plugin, $default_function, $transform_options,
+    private function getDataCellForGeometryColumns(
+        ?string $column,
+        $class,
+        $meta,
+        array $map,
+        array $_url_params,
+        $condition_field,
+        $transformation_plugin,
+        $default_function,
+        $transform_options,
         array $analyzed_sql_results
     ) {
-        if (! isset($column) || is_null($column)) {
-            $cell = $this->_buildNullDisplay($class, $condition_field, $meta);
-            return $cell;
+        if (! isset($column) || $column === null) {
+            return $this->buildNullDisplay($class, $condition_field, $meta);
         }
 
         if ($column == '') {
-            $cell = $this->_buildEmptyDisplay($class, $condition_field, $meta);
-            return $cell;
+            return $this->buildEmptyDisplay($class, $condition_field, $meta);
         }
 
         // Display as [GEOMETRY - (size)]
-        if ($_SESSION['tmpval']['geoOption'] == self::GEOMETRY_DISP_GEOM) {
-            $geometry_text = $this->_handleNonPrintableContents(
-                strtoupper(self::GEOMETRY_FIELD), $column, $transformation_plugin,
-                $transform_options, $default_function, $meta, $_url_params
+        if ($_SESSION['tmpval']['geoOption'] === self::GEOMETRY_DISP_GEOM) {
+            $geometry_text = $this->handleNonPrintableContents(
+                strtoupper(self::GEOMETRY_FIELD),
+                $column,
+                $transformation_plugin,
+                $transform_options,
+                $default_function,
+                $meta,
+                $_url_params
             );
 
-            $cell = $this->_buildValueDisplay(
-                $class, $condition_field, $geometry_text
+            return $this->buildValueDisplay(
+                $class,
+                $condition_field,
+                $geometry_text
             );
-            return $cell;
         }
 
-        if ($_SESSION['tmpval']['geoOption'] == self::GEOMETRY_DISP_WKT) {
+        if ($_SESSION['tmpval']['geoOption'] === self::GEOMETRY_DISP_WKT) {
             // Prepare in Well Known Text(WKT) format.
             $where_comparison = ' = ' . $column;
 
             // Convert to WKT format
             $wktval = Util::asWKT($column);
-            list(
+            [
                 $is_field_truncated,
-                $wktval,
+                $displayedColumn,
                 // skip 3rd param
-            ) = $this->_getPartialText($wktval);
+            ] = $this->getPartialText($wktval);
 
-            $cell = $this->_getRowData(
-                $class, $condition_field, $analyzed_sql_results, $meta, $map,
-                $wktval, $transformation_plugin, $default_function, '',
-                $where_comparison, $transform_options,
-                $is_field_truncated, ''
+            return $this->getRowData(
+                $class,
+                $condition_field,
+                $analyzed_sql_results,
+                $meta,
+                $map,
+                $wktval,
+                $displayedColumn,
+                $transformation_plugin,
+                $default_function,
+                '',
+                $where_comparison,
+                $transform_options,
+                $is_field_truncated,
+                ''
             );
-            return $cell;
         }
 
         // Prepare in  Well Known Binary (WKB) format.
@@ -3722,132 +3661,154 @@ class Results
             $where_comparison = ' = ' . $column;
 
             $wkbval = substr(bin2hex($column), 8);
-            list(
+            [
                 $is_field_truncated,
-                $wkbval,
+                $displayedColumn,
                 // skip 3rd param
-            ) = $this->_getPartialText($wkbval);
+            ] = $this->getPartialText($wkbval);
 
-            $cell = $this->_getRowData(
-                $class, $condition_field,
-                $analyzed_sql_results, $meta, $map, $wkbval,
-                $transformation_plugin, $default_function, '',
-                $where_comparison, $transform_options,
-                $is_field_truncated, ''
+            return $this->getRowData(
+                $class,
+                $condition_field,
+                $analyzed_sql_results,
+                $meta,
+                $map,
+                $wkbval,
+                $displayedColumn,
+                $transformation_plugin,
+                $default_function,
+                '',
+                $where_comparison,
+                $transform_options,
+                $is_field_truncated,
+                ''
             );
-            return $cell;
         }
 
-        $wkbval = $this->_handleNonPrintableContents(
-            self::BINARY_FIELD, $column, $transformation_plugin,
-            $transform_options, $default_function, $meta,
+        $wkbval = $this->handleNonPrintableContents(
+            self::BINARY_FIELD,
+            $column,
+            $transformation_plugin,
+            $transform_options,
+            $default_function,
+            $meta,
             $_url_params
         );
 
-        $cell = $this->_buildValueDisplay(
-            $class, $condition_field, $wkbval
+        return $this->buildValueDisplay(
+            $class,
+            $condition_field,
+            $wkbval
         );
-
-        return $cell;
-
-    } // end of the '_getDataCellForGeometryColumns()' function
-
+    }
 
     /**
      * Get data cell for non numeric type fields
      *
-     * @param string        $column                the relevant column in data row
-     * @param string        $class                 the html class for column
-     * @param object        $meta                  the meta-information about
-     *                                             the field
-     * @param array         $map                   the list of relations
-     * @param array         $_url_params           the parameters for generate
-     *                                             url
-     * @param boolean       $condition_field       the column should highlighted
-     *                                             or not
-     * @param object|string $transformation_plugin the name of transformation
-     *                                             function
-     * @param string        $default_function      the default transformation
-     *                                             function
-     * @param string        $transform_options     the transformation parameters
-     * @param boolean       $is_field_truncated    is data truncated due to
-     *                                             LimitChars
-     * @param array         $analyzed_sql_results  the analyzed query
-     * @param integer       &$dt_result            the link id associated to
-     *                                             the query which results
-     *                                             have to be displayed
-     * @param integer       $col_index             the column index
+     * @see    getTableBody()
      *
-     * @return  string  $cell the prepared data cell, html content
+     * @param string|null           $column                the relevant column in data row
+     * @param string                $class                 the html class for column
+     * @param stdClass              $meta                  the meta-information about
+     *                                                     the field
+     * @param array                 $map                   the list of relations
+     * @param array                 $_url_params           the parameters for generate
+     *                                                     url
+     * @param bool                  $condition_field       the column should highlighted
+     *                                                     or not
+     * @param TransformationsPlugin $transformation_plugin the name of transformation
+     *                                                     function
+     * @param string                $default_function      the default transformation
+     *                                                     function
+     * @param array                 $transform_options     the transformation parameters
+     * @param bool                  $is_field_truncated    is data truncated due to
+     *                                                     LimitChars
+     * @param array                 $analyzed_sql_results  the analyzed query
+     * @param int                   $dt_result             the link id associated to
+     *                                                     the query which results
+     *                                                     have to be displayed
+     * @param int                   $col_index             the column index
      *
-     * @access  private
+     * @return string the prepared data cell, html content
      *
-     * @see     _getTableBody()
+     * @access private
      */
-    private function _getDataCellForNonNumericColumns(
-        $column, $class, $meta, array $map, array $_url_params, $condition_field,
-        $transformation_plugin, $default_function, $transform_options,
-        $is_field_truncated, array $analyzed_sql_results, &$dt_result, $col_index
+    private function getDataCellForNonNumericColumns(
+        ?string $column,
+        $class,
+        $meta,
+        array $map,
+        array $_url_params,
+        $condition_field,
+        $transformation_plugin,
+        $default_function,
+        $transform_options,
+        $is_field_truncated,
+        array $analyzed_sql_results,
+        &$dt_result,
+        $col_index
     ) {
+        global $dbi;
+
         $original_length = 0;
 
-        $is_analyse = $this->__get('is_analyse');
-        $field_flags = $GLOBALS['dbi']->fieldFlags($dt_result, $col_index);
+        $is_analyse = $this->properties['is_analyse'];
+        $field_flags = $dbi->fieldFlags($dt_result, $col_index);
 
-        $bIsText = gettype($transformation_plugin) === 'object'
-            && strpos($transformation_plugin->getMIMEtype(), 'Text')
+        $bIsText = is_object($transformation_plugin)
+            && strpos($transformation_plugin->getMIMEType(), 'Text')
             === false;
 
         // disable inline grid editing
         // if binary fields are protected
         // or transformation plugin is of non text type
         // such as image
-        if ((stristr($field_flags, self::BINARY_FIELD)
+        if ((stripos($field_flags, self::BINARY_FIELD) !== false
             && ($GLOBALS['cfg']['ProtectBinary'] === 'all'
             || ($GLOBALS['cfg']['ProtectBinary'] === 'noblob'
-            && !stristr($meta->type, self::BLOB_FIELD))
+            && stripos($meta->type, self::BLOB_FIELD) === false)
             || ($GLOBALS['cfg']['ProtectBinary'] === 'blob'
-            && stristr($meta->type, self::BLOB_FIELD))))
+            && stripos($meta->type, self::BLOB_FIELD) !== false)))
             || $bIsText
         ) {
             $class = str_replace('grid_edit', '', $class);
         }
 
-        if (! isset($column) || is_null($column)) {
-            $cell = $this->_buildNullDisplay($class, $condition_field, $meta);
-            return $cell;
+        if (! isset($column) || $column === null) {
+            return $this->buildNullDisplay($class, $condition_field, $meta);
         }
 
         if ($column == '') {
-            $cell = $this->_buildEmptyDisplay($class, $condition_field, $meta);
-            return $cell;
+            return $this->buildEmptyDisplay($class, $condition_field, $meta);
         }
 
         // Cut all fields to $GLOBALS['cfg']['LimitChars']
         // (unless it's a link-type transformation or binary)
-        if (!(gettype($transformation_plugin) === "object"
+        $originalDataForWhereClause = $column;
+        $displayedColumn = $column;
+        if (! (is_object($transformation_plugin)
             && strpos($transformation_plugin->getName(), 'Link') !== false)
-            && !stristr($field_flags, self::BINARY_FIELD)
+            && stripos($field_flags, self::BINARY_FIELD) === false
         ) {
-            list(
+            [
                 $is_field_truncated,
                 $column,
-                $original_length
-            ) = $this->_getPartialText($column);
+                $original_length,
+            ] = $this->getPartialText($column);
         }
 
         $formatted = false;
         if (isset($meta->_type) && $meta->_type === MYSQLI_TYPE_BIT) {
-
-            $column = Util::printableBitValue(
-                $column, $meta->length
+            $displayedColumn = Util::printableBitValue(
+                (int) $displayedColumn,
+                (int) $meta->length
             );
 
             // some results of PROCEDURE ANALYSE() are reported as
             // being BINARY but they are quite readable,
             // so don't treat them as BINARY
-        } elseif (stristr($field_flags, self::BINARY_FIELD)
-            && !(isset($is_analyse) && $is_analyse)
+        } elseif (stripos($field_flags, self::BINARY_FIELD) !== false
+            && ! (isset($is_analyse) && $is_analyse)
         ) {
             // we show the BINARY or BLOB message and field's size
             // (or maybe use a transformation)
@@ -3855,97 +3816,118 @@ class Results
             if ($meta->type === self::STRING_FIELD) {
                 $binary_or_blob = self::BINARY_FIELD;
             }
-            $column = $this->_handleNonPrintableContents(
-                $binary_or_blob, $column, $transformation_plugin,
-                $transform_options, $default_function,
-                $meta, $_url_params, $is_field_truncated
+            $displayedColumn = $this->handleNonPrintableContents(
+                $binary_or_blob,
+                $displayedColumn,
+                $transformation_plugin,
+                $transform_options,
+                $default_function,
+                $meta,
+                $_url_params,
+                $is_field_truncated
             );
-            $class = $this->_addClass(
-                $class, $condition_field, $meta, '',
-                $is_field_truncated, $transformation_plugin, $default_function
+            $class = $this->addClass(
+                $class,
+                $condition_field,
+                $meta,
+                '',
+                $is_field_truncated,
+                $transformation_plugin,
+                $default_function
             );
             $result = strip_tags($column);
             // disable inline grid editing
             // if binary or blob data is not shown
-            if (stristr($result, $binary_or_blob)) {
+            if (stripos($result, $binary_or_blob) !== false) {
                 $class = str_replace('grid_edit', '', $class);
             }
             $formatted = true;
         }
 
         if ($formatted) {
-            $cell = $this->_buildValueDisplay(
-                $class, $condition_field, $column
+            return $this->buildValueDisplay(
+                $class,
+                $condition_field,
+                $displayedColumn
             );
-            return $cell;
         }
 
         // transform functions may enable no-wrapping:
         $function_nowrap = 'applyTransformationNoWrap';
 
-        $bool_nowrap = (($default_function != $transformation_plugin)
-            && function_exists($transformation_plugin->$function_nowrap()))
+        $bool_nowrap = ($default_function != $transformation_plugin)
+            && method_exists($transformation_plugin, $function_nowrap)
             ? $transformation_plugin->$function_nowrap($transform_options)
             : false;
 
-        // do not wrap if date field type
-        $nowrap = (preg_match('@DATE|TIME@i', $meta->type)
-            || $bool_nowrap) ? ' nowrap' : '';
+        // do not wrap if date field type or if no-wrapping enabled by transform functions
+        // otherwise, preserve whitespaces and wrap
+        $nowrap = preg_match('@DATE|TIME@i', $meta->type)
+            || $bool_nowrap ? 'nowrap' : 'pre_wrap';
 
         $where_comparison = ' = \''
-            . $GLOBALS['dbi']->escapeString($column)
+            . $dbi->escapeString($originalDataForWhereClause)
             . '\'';
 
-        $cell = $this->_getRowData(
-            $class, $condition_field,
-            $analyzed_sql_results, $meta, $map, $column,
-            $transformation_plugin, $default_function, $nowrap,
-            $where_comparison, $transform_options,
-            $is_field_truncated, $original_length
+        return $this->getRowData(
+            $class,
+            $condition_field,
+            $analyzed_sql_results,
+            $meta,
+            $map,
+            $column,
+            $displayedColumn,
+            $transformation_plugin,
+            $default_function,
+            $nowrap,
+            $where_comparison,
+            $transform_options,
+            $is_field_truncated,
+            $original_length
         );
-
-        return $cell;
-
-    } // end of the '_getDataCellForNonNumericColumns()' function
+    }
 
     /**
      * Checks the posted options for viewing query results
      * and sets appropriate values in the session.
      *
+     * @return void
+     *
      * @todo    make maximum remembered queries configurable
      * @todo    move/split into SQL class!?
      * @todo    currently this is called twice unnecessary
      * @todo    ignore LIMIT and ORDER in query!?
-     *
-     * @return void
-     *
-     * @access  public
-     *
-     * @see     sql.php file
+     * @access public
      */
     public function setConfigParamsForDisplayTable()
     {
-
-        $sql_md5 = md5($this->__get('sql_query'));
-        $query = array();
+        $sql_md5 = md5(
+            $this->properties['server']
+            . $this->properties['db']
+            . $this->properties['sql_query']
+        );
+        $query = [];
         if (isset($_SESSION['tmpval']['query'][$sql_md5])) {
             $query = $_SESSION['tmpval']['query'][$sql_md5];
         }
 
-        $query['sql'] = $this->__get('sql_query');
+        $query['sql'] = $this->properties['sql_query'];
 
         if (empty($query['repeat_cells'])) {
             $query['repeat_cells'] = $GLOBALS['cfg']['RepeatCells'];
         }
 
+        // The value can also be from _GET as described on issue #16146 when sorting results
+        $sessionMaxRows = $_GET['session_max_rows'] ?? $_POST['session_max_rows'] ?? '';
+
         // as this is a form value, the type is always string so we cannot
-        // use Core::isValid($_REQUEST['session_max_rows'], 'integer')
-        if (Core::isValid($_REQUEST['session_max_rows'], 'numeric')) {
-            $query['max_rows'] = (int)$_REQUEST['session_max_rows'];
-            unset($_REQUEST['session_max_rows']);
-        } elseif ($_REQUEST['session_max_rows'] == self::ALL_ROWS) {
+        // use Core::isValid($_POST['session_max_rows'], 'integer')
+        if (Core::isValid($sessionMaxRows, 'numeric')) {
+            $query['max_rows'] = (int) $sessionMaxRows;
+            unset($_GET['session_max_rows'], $_POST['session_max_rows']);
+        } elseif ($sessionMaxRows === self::ALL_ROWS) {
             $query['max_rows'] = self::ALL_ROWS;
-            unset($_REQUEST['session_max_rows']);
+            unset($_GET['session_max_rows'], $_POST['session_max_rows']);
         } elseif (empty($query['max_rows'])) {
             $query['max_rows'] = intval($GLOBALS['cfg']['MaxRows']);
         }
@@ -3959,9 +3941,10 @@ class Results
 
         if (Core::isValid(
             $_REQUEST['pftext'],
-            array(
-                self::DISPLAY_PARTIAL_TEXT, self::DISPLAY_FULL_TEXT
-            )
+            [
+                self::DISPLAY_PARTIAL_TEXT,
+                self::DISPLAY_FULL_TEXT,
+            ]
         )
         ) {
             $query['pftext'] = $_REQUEST['pftext'];
@@ -3972,9 +3955,10 @@ class Results
 
         if (Core::isValid(
             $_REQUEST['relational_display'],
-            array(
-                self::RELATIONAL_KEY, self::RELATIONAL_DISPLAY_COLUMN
-            )
+            [
+                self::RELATIONAL_KEY,
+                self::RELATIONAL_DISPLAY_COLUMN,
+            ]
         )
         ) {
             $query['relational_display'] = $_REQUEST['relational_display'];
@@ -3988,10 +3972,11 @@ class Results
 
         if (Core::isValid(
             $_REQUEST['geoOption'],
-            array(
-                self::GEOMETRY_DISP_WKT, self::GEOMETRY_DISP_WKB,
-                self::GEOMETRY_DISP_GEOM
-            )
+            [
+                self::GEOMETRY_DISP_WKT,
+                self::GEOMETRY_DISP_WKB,
+                self::GEOMETRY_DISP_GEOM,
+            ]
         )
         ) {
             $query['geoOption'] = $_REQUEST['geoOption'];
@@ -4006,9 +3991,7 @@ class Results
         } elseif (isset($_REQUEST['display_options_form'])) {
             // we know that the checkbox was unchecked
             unset($query['display_binary']);
-        } elseif (isset($_REQUEST['full_text_button'])) {
-            // do nothing to keep the value that is there in the session
-        } else {
+        } elseif (! isset($_REQUEST['full_text_button'])) {
             // selected by default because some operations like OPTIMIZE TABLE
             // and all queries involving functions return "binary" contents,
             // according to low-level field flags
@@ -4070,53 +4053,47 @@ class Results
     /**
      * Prepare a table of results returned by a SQL query.
      *
-     * @param integer &$dt_result           the link id associated to the query
-     *                                      which results have to be displayed
-     * @param array   &$displayParts        the parts to display
-     * @param array   $analyzed_sql_results analyzed sql results
-     * @param boolean $is_limited_display   With limited operations or not
+     * @param int   $dt_result            the link id associated to the query
+     *                                    which results have to be displayed
+     * @param array $displayParts         the parts to display
+     * @param array $analyzed_sql_results analyzed sql results
+     * @param bool  $is_limited_display   With limited operations or not
      *
-     * @return  string   $table_html   Generated HTML content for resulted table
+     * @return string   Generated HTML content for resulted table
      *
-     * @access  public
-     *
-     * @see     sql.php file
+     * @access public
      */
     public function getTable(
-        &$dt_result, array &$displayParts, array $analyzed_sql_results,
+        &$dt_result,
+        array &$displayParts,
+        array $analyzed_sql_results,
         $is_limited_display = false
     ) {
-
-        /**
-         * The statement this table is built for.
-         * @var \PhpMyAdmin\SqlParser\Statements\SelectStatement
-         */
+        // The statement this table is built for.
         if (isset($analyzed_sql_results['statement'])) {
+            /** @var SelectStatement $statement */
             $statement = $analyzed_sql_results['statement'];
         } else {
             $statement = null;
         }
 
-        $table_html = '';
         // Following variable are needed for use in isset/empty or
         // use with array indexes/safe use in foreach
-        $fields_meta = $this->__get('fields_meta');
-        $showtable = $this->__get('showtable');
-        $printview = $this->__get('printview');
+        $fields_meta = $this->properties['fields_meta'];
+        $showtable = $this->properties['showtable'];
+        $printview = $this->properties['printview'];
 
         /**
          * @todo move this to a central place
          * @todo for other future table types
          */
         $is_innodb = (isset($showtable['Type'])
-            && $showtable['Type'] == self::TABLE_TYPE_INNO_DB);
+            && $showtable['Type'] === self::TABLE_TYPE_INNO_DB);
 
-        $sql = new Sql();
-        if ($is_innodb && $sql->isJustBrowsing($analyzed_sql_results, true)) {
-            // "j u s t   b r o w s i n g"
+        if ($is_innodb && Sql::isJustBrowsing($analyzed_sql_results, true)) {
             $pre_count = '~';
-            $after_count = Util::showHint(
-                Sanitize::sanitize(
+            $after_count = Generator::showHint(
+                Sanitize::sanitizeMessage(
                     __('May be approximate. See [doc@faq3-11]FAQ 3.11[/doc].')
                 )
             );
@@ -4130,24 +4107,26 @@ class Results
         // 1.1 Gets the information about which functionalities should be
         //     displayed
 
-        list(
+        [
             $displayParts,
-            $total
-        )  = $this->_setDisplayPartsAndTotal($displayParts);
+            $total,
+        ]  = $this->setDisplayPartsAndTotal($displayParts);
 
         // 1.2 Defines offsets for the next and previous pages
+        $pos_next = 0;
+        $pos_prev = 0;
         if ($displayParts['nav_bar'] == '1') {
-            list($pos_next, $pos_prev) = $this->_getOffsets();
-        } // end if
+            [$pos_next, $pos_prev] = $this->getOffsets();
+        }
 
         // 1.3 Extract sorting expressions.
         //     we need $sort_expression and $sort_expression_nodirection
         //     even if there are many table references
-        $sort_expression = array();
-        $sort_expression_nodirection = array();
-        $sort_direction = array();
+        $sort_expression = [];
+        $sort_expression_nodirection = [];
+        $sort_direction = [];
 
-        if (!is_null($statement) && !empty($statement->order)) {
+        if ($statement !== null && ! empty($statement->order)) {
             foreach ($statement->order as $o) {
                 $sort_expression[] = $o->expr->expr . ' ' . $o->type;
                 $sort_expression_nodirection[] = $o->expr->expr;
@@ -4163,18 +4142,19 @@ class Results
 
         // 1.4 Prepares display of first and last value of the sorted column
         $sorted_column_message = '';
-        for ( $i = 0; $i < $number_of_columns; $i++ ) {
-            $sorted_column_message .= $this->_getSortedColumnMessage(
-                $dt_result, $sort_expression_nodirection[$i]
+        for ($i = 0; $i < $number_of_columns; $i++) {
+            $sorted_column_message .= $this->getSortedColumnMessage(
+                $dt_result,
+                $sort_expression_nodirection[$i]
             );
         }
 
         // 2. ----- Prepare to display the top of the page -----
 
         // 2.1 Prepares a messages with position information
-        if (($displayParts['nav_bar'] == '1') && isset($pos_next)) {
-
-            $message = $this->_setMessageInformation(
+        $sqlQueryMessage = '';
+        if (($displayParts['nav_bar'] == '1') && $pos_next !== null) {
+            $message = $this->setMessageInformation(
                 $sorted_column_message,
                 $analyzed_sql_results,
                 $total,
@@ -4183,52 +4163,50 @@ class Results
                 $after_count
             );
 
-            $table_html .= Util::getMessage(
-                $message, $this->__get('sql_query'), 'success'
+            $sqlQueryMessage = Generator::getMessage(
+                $message,
+                $this->properties['sql_query'],
+                'success'
             );
-
-        } elseif ((!isset($printview) || ($printview != '1')) && !$is_limited_display) {
-
-            $table_html .= Util::getMessage(
+        } elseif ((! isset($printview) || ($printview != '1')) && ! $is_limited_display) {
+            $sqlQueryMessage = Generator::getMessage(
                 __('Your SQL query has been executed successfully.'),
-                $this->__get('sql_query'), 'success'
+                $this->properties['sql_query'],
+                'success'
             );
         }
 
         // 2.3 Prepare the navigation bars
-        if (strlen($this->__get('table')) === 0) {
-
-            if ($analyzed_sql_results['querytype'] == 'SELECT') {
+        if (strlen($this->properties['table']) === 0) {
+            if ($analyzed_sql_results['querytype'] === 'SELECT') {
                 // table does not always contain a real table name,
                 // for example in MySQL 5.0.x, the query SHOW STATUS
                 // returns STATUS as a table name
-                $this->__set('table', $fields_meta[0]->table);
+                $this->properties['table'] = $fields_meta[0]->table;
             } else {
-                $this->__set('table', '');
+                $this->properties['table'] = '';
             }
-
         }
 
         // can the result be sorted?
-        if ($displayParts['sort_lnk'] == '1' && ! is_null($analyzed_sql_results['statement'])) {
-
-            // At this point, $sort_expression is an array but we only verify
-            // the first element in case we could find that the table is
-            // sorted by one of the choices listed in the
-            // "Sort by key" drop-down
-            list($unsorted_sql_query, $sort_by_key_html)
-                = $this->_getUnsortedSqlAndSortByKeyDropDown(
-                    $analyzed_sql_results, $sort_expression[0]
+        if ($displayParts['sort_lnk'] == '1' && $analyzed_sql_results['statement'] !== null) {
+            // At this point, $sort_expression is an array
+            [$unsorted_sql_query, $sort_by_key_html]
+                = $this->getUnsortedSqlAndSortByKeyDropDown(
+                    $analyzed_sql_results,
+                    $sort_expression
                 );
-
         } else {
             $sort_by_key_html = $unsorted_sql_query = '';
         }
 
-        if (($displayParts['nav_bar'] == '1') && !is_null($statement) && (empty($statement->limit))) {
-            $table_html .= $this->_getPlacedTableNavigations(
-                $pos_next, $pos_prev, self::PLACE_TOP_DIRECTION_DROPDOWN,
-                $is_innodb, $sort_by_key_html
+        $navigation = [];
+        if ($displayParts['nav_bar'] == '1' && $statement !== null && empty($statement->limit)) {
+            $navigation = $this->getTableNavigation(
+                $pos_next,
+                $pos_prev,
+                $is_innodb,
+                $sort_by_key_html
             );
         }
 
@@ -4236,40 +4214,27 @@ class Results
         // (see the 'relation' configuration variable)
 
         // initialize map
-        $map = array();
+        $map = [];
 
-        $target = array();
-        if (!is_null($statement) && !empty($statement->from)) {
-            foreach ($statement->from as $field) {
-                if (!empty($field->table)) {
-                    $target[] = $field->table;
-                }
-            }
-        }
-
-        if (strlen($this->__get('table')) > 0) {
+        if (strlen($this->properties['table']) > 0) {
             // This method set the values for $map array
-            $this->_setParamForLinkForeignKeyRelatedTables($map);
+            $this->setParamForLinkForeignKeyRelatedTables($map);
 
             // Coming from 'Distinct values' action of structure page
             // We manipulate relations mechanism to show a link to related rows.
-            if ($this->__get('is_browse_distinct')) {
-                $map[$fields_meta[1]->name] = array(
-                    $this->__get('table'),
+            if ($this->properties['is_browse_distinct']) {
+                $map[$fields_meta[1]->name] = [
+                    $this->properties['table'],
                     $fields_meta[1]->name,
                     '',
-                    $this->__get('db')
-                );
+                    $this->properties['db'],
+                ];
             }
-        } // end if
+        }
         // end 2b
 
         // 3. ----- Prepare the results table -----
-        if ($is_limited_display) {
-            $table_html .= "<br>";
-        }
-
-        $table_html .= $this->_getTableHeaders(
+        $headers = $this->getTableHeaders(
             $displayParts,
             $analyzed_sql_results,
             $unsorted_sql_query,
@@ -4279,9 +4244,7 @@ class Results
             $is_limited_display
         );
 
-        $table_html .= '<tbody>' . "\n";
-
-        $table_html .= $this->_getTableBody(
+        $body = $this->getTableBody(
             $dt_result,
             $displayParts,
             $map,
@@ -4289,63 +4252,61 @@ class Results
             $is_limited_display
         );
 
-        $this->__set('display_params', null);
-
-        $table_html .= '</tbody>' . "\n" . '</table></div>';
+        $this->properties['display_params'] = null;
 
         // 4. ----- Prepares the link for multi-fields edit and delete
+        $bulkLinks = $this->getBulkLinks(
+            $dt_result,
+            $analyzed_sql_results,
+            $displayParts['del_lnk']
+        );
 
-        if ($displayParts['del_lnk'] == self::DELETE_ROW
-            && $displayParts['del_lnk'] != self::KILL_PROCESS
-        ) {
-
-            $table_html .= $this->_getMultiRowOperationLinks(
-                $dt_result,
-                $analyzed_sql_results,
-                $displayParts['del_lnk']
-            );
-
-        }
-
-        // 5. ----- Get the navigation bar at the bottom if required -----
-        if (($displayParts['nav_bar'] == '1') && !is_null($statement) && empty($statement->limit)) {
-            $table_html .= $this->_getPlacedTableNavigations(
-                $pos_next, $pos_prev, self::PLACE_BOTTOM_DIRECTION_DROPDOWN,
-                $is_innodb, $sort_by_key_html
-            );
-        } elseif (! isset($printview) || ($printview != '1')) {
-            $table_html .= "\n" . '<br /><br />' . "\n";
-        }
-
-        // 6. ----- Prepare "Query results operations"
+        // 5. ----- Prepare "Query results operations"
+        $operations = [];
         if ((! isset($printview) || ($printview != '1')) && ! $is_limited_display) {
-            $table_html .= $this->_getResultsOperations(
-                $displayParts, $analyzed_sql_results
+            $operations = $this->getResultsOperations(
+                $displayParts,
+                $analyzed_sql_results
             );
         }
 
-        return $table_html;
-
-    } // end of the 'getTable()' function
-
+        return $this->template->render('display/results/table', [
+            'sql_query_message' => $sqlQueryMessage,
+            'navigation' => $navigation,
+            'headers' => $headers,
+            'body' => $body,
+            'bulk_links' => $bulkLinks,
+            'operations' => $operations,
+            'db' => $this->properties['db'],
+            'table' => $this->properties['table'],
+            'unique_id' => $this->properties['unique_id'],
+            'sql_query' => $this->properties['sql_query'],
+            'goto' => $this->properties['goto'],
+            'unlim_num_rows' => $this->properties['unlim_num_rows'],
+            'displaywork' => $GLOBALS['cfgRelation']['displaywork'],
+            'relwork' => $GLOBALS['cfgRelation']['relwork'],
+            'save_cells_at_once' => $GLOBALS['cfg']['SaveCellsAtOnce'],
+            'default_sliders_state' => $GLOBALS['cfg']['InitialSlidersState'],
+            'select_all_arrow' => $this->properties['theme_image_path'] . 'arrow_'
+                . $this->properties['text_dir'] . '.png',
+        ]);
+    }
 
     /**
      * Get offsets for next page and previous page
      *
-     * @return  array           array with two elements - $pos_next, $pos_prev
+     * @see    getTable()
      *
-     * @access  private
+     * @return int[] array with two elements - $pos_next, $pos_prev
      *
-     * @see     getTable()
+     * @access private
      */
-    private function _getOffsets()
+    private function getOffsets()
     {
-
-        if ($_SESSION['tmpval']['max_rows'] == self::ALL_ROWS) {
+        if ($_SESSION['tmpval']['max_rows'] === self::ALL_ROWS) {
             $pos_next     = 0;
             $pos_prev     = 0;
         } else {
-
             $pos_next     = $_SESSION['tmpval']['pos']
                             + $_SESSION['tmpval']['max_rows'];
 
@@ -4357,41 +4318,43 @@ class Results
             }
         }
 
-        return array($pos_next, $pos_prev);
-
-    } // end of the '_getOffsets()' function
-
+        return [
+            $pos_next,
+            $pos_prev,
+        ];
+    }
 
     /**
      * Prepare sorted column message
      *
-     * @param integer &$dt_result                  the link id associated to the
-     *                                             query which results have to
-     *                                             be displayed
-     * @param string  $sort_expression_nodirection sort expression without direction
-     *
-     * @return  string                              html content
-     *          null                                if not found sorted column
-     *
-     * @access  private
-     *
      * @see     getTable()
+     *
+     * @param int    $dt_result                   the link id associated to the
+     *                                            query which results have to
+     *                                            be displayed
+     * @param string $sort_expression_nodirection sort expression without direction
+     *
+     * @return string|null html content, null if not found sorted column
+     *
+     * @access private
      */
-    private function _getSortedColumnMessage(
-        &$dt_result, $sort_expression_nodirection
+    private function getSortedColumnMessage(
+        &$dt_result,
+        $sort_expression_nodirection
     ) {
+        global $dbi;
 
-        $fields_meta = $this->__get('fields_meta'); // To use array indexes
+        $fields_meta = $this->properties['fields_meta']; // To use array indexes
 
         if (empty($sort_expression_nodirection)) {
             return null;
         }
 
         if (mb_strpos($sort_expression_nodirection, '.') === false) {
-            $sort_table = $this->__get('table');
+            $sort_table = $this->properties['table'];
             $sort_column = $sort_expression_nodirection;
         } else {
-            list($sort_table, $sort_column)
+            [$sort_table, $sort_column]
                 = explode('.', $sort_expression_nodirection);
         }
 
@@ -4414,99 +4377,114 @@ class Results
         }
 
         // fetch first row of the result set
-        $row = $GLOBALS['dbi']->fetchRow($dt_result);
+        $row = $dbi->fetchRow($dt_result);
 
         // initializing default arguments
-        $default_function = [Core::class, 'mimeDefaultFunction'];
+        $default_function = [
+            Core::class,
+            'mimeDefaultFunction',
+        ];
         $transformation_plugin = $default_function;
-        $transform_options = array();
+        $transform_options = [];
 
         // check for non printable sorted row data
         $meta = $fields_meta[$sorted_column_index];
 
-        if (stristr($meta->type, self::BLOB_FIELD)
-            || ($meta->type == self::GEOMETRY_FIELD)
+        if (stripos($meta->type, self::BLOB_FIELD) !== false
+            || ($meta->type === self::GEOMETRY_FIELD)
+            || ($meta->type === 'string' && $meta->charsetnr === 63)// Is a binary string
         ) {
-
-            $column_for_first_row = $this->_handleNonPrintableContents(
-                $meta->type, $row[$sorted_column_index],
-                $transformation_plugin, $transform_options,
-                $default_function, $meta
+            $column_for_first_row = $this->handleNonPrintableContents(
+                $meta->type,
+                $row[$sorted_column_index],
+                $transformation_plugin,
+                $transform_options,
+                $default_function,
+                $meta
             );
-
         } else {
-            $column_for_first_row = $row[$sorted_column_index];
+            $column_for_first_row = $row !== null ? $row[$sorted_column_index] : '';
         }
 
         $column_for_first_row = mb_strtoupper(
             mb_substr(
-                $column_for_first_row, 0, $GLOBALS['cfg']['LimitChars']
+                (string) $column_for_first_row,
+                0,
+                (int) $GLOBALS['cfg']['LimitChars']
             ) . '...'
         );
 
         // fetch last row of the result set
-        $GLOBALS['dbi']->dataSeek($dt_result, $this->__get('num_rows') - 1);
-        $row = $GLOBALS['dbi']->fetchRow($dt_result);
+        $dbi->dataSeek(
+            $dt_result,
+            $this->properties['num_rows'] > 0 ? $this->properties['num_rows'] - 1 : 0
+        );
+        $row = $dbi->fetchRow($dt_result);
 
         // check for non printable sorted row data
         $meta = $fields_meta[$sorted_column_index];
-        if (stristr($meta->type, self::BLOB_FIELD)
-            || ($meta->type == self::GEOMETRY_FIELD)
+        if (stripos($meta->type, self::BLOB_FIELD) !== false
+            || ($meta->type === self::GEOMETRY_FIELD)
+            || ($meta->type === 'string' && $meta->charsetnr === 63)// Is a binary string
         ) {
-
-            $column_for_last_row = $this->_handleNonPrintableContents(
-                $meta->type, $row[$sorted_column_index],
-                $transformation_plugin, $transform_options,
-                $default_function, $meta
+            $column_for_last_row = $this->handleNonPrintableContents(
+                $meta->type,
+                $row[$sorted_column_index],
+                $transformation_plugin,
+                $transform_options,
+                $default_function,
+                $meta
             );
-
         } else {
-            $column_for_last_row = $row[$sorted_column_index];
+            $column_for_last_row = $row !== null ? $row[$sorted_column_index] : '';
         }
 
         $column_for_last_row = mb_strtoupper(
             mb_substr(
-                $column_for_last_row, 0, $GLOBALS['cfg']['LimitChars']
+                (string) $column_for_last_row,
+                0,
+                (int) $GLOBALS['cfg']['LimitChars']
             ) . '...'
         );
 
-        // reset to first row for the loop in _getTableBody()
-        $GLOBALS['dbi']->dataSeek($dt_result, 0);
+        // reset to first row for the loop in getTableBody()
+        $dbi->dataSeek($dt_result, 0);
 
         // we could also use here $sort_expression_nodirection
         return ' [' . htmlspecialchars($sort_column)
             . ': <strong>' . htmlspecialchars($column_for_first_row) . ' - '
             . htmlspecialchars($column_for_last_row) . '</strong>]';
-    } // end of the '_getSortedColumnMessage()' function
-
+    }
 
     /**
      * Set the content that needs to be shown in message
      *
-     * @param string  $sorted_column_message the message for sorted column
-     * @param array   $analyzed_sql_results  the analyzed query
-     * @param integer $total                 the total number of rows returned by
-     *                                       the SQL query without any
-     *                                       programmatically appended LIMIT clause
-     * @param integer $pos_next              the offset for next page
-     * @param string  $pre_count             the string renders before row count
-     * @param string  $after_count           the string renders after row count
-     *
-     * @return Message $message an object of Message
-     *
-     * @access  private
-     *
      * @see     getTable()
+     *
+     * @param string $sorted_column_message the message for sorted column
+     * @param array  $analyzed_sql_results  the analyzed query
+     * @param int    $total                 the total number of rows returned by
+     *                                      the SQL query without any
+     *                                      programmatically appended LIMIT clause
+     * @param int    $pos_next              the offset for next page
+     * @param string $pre_count             the string renders before row count
+     * @param string $after_count           the string renders after row count
+     *
+     * @return Message an object of Message
+     *
+     * @access private
      */
-    private function _setMessageInformation(
-        $sorted_column_message, array $analyzed_sql_results, $total,
-        $pos_next, $pre_count, $after_count
+    private function setMessageInformation(
+        $sorted_column_message,
+        array $analyzed_sql_results,
+        $total,
+        $pos_next,
+        $pre_count,
+        $after_count
     ) {
+        $unlim_num_rows = $this->properties['unlim_num_rows']; // To use in isset()
 
-        $unlim_num_rows = $this->__get('unlim_num_rows'); // To use in isset()
-
-        if (!empty($analyzed_sql_results['statement']->limit)) {
-
+        if (! empty($analyzed_sql_results['statement']->limit)) {
             $first_shown_rec = $analyzed_sql_results['statement']->limit->offset;
             $row_count = $analyzed_sql_results['statement']->limit->rowCount;
 
@@ -4515,26 +4493,20 @@ class Results
             } else {
                 $last_shown_rec = $first_shown_rec + $total - 1;
             }
-
-        } elseif (($_SESSION['tmpval']['max_rows'] == self::ALL_ROWS)
+        } elseif (($_SESSION['tmpval']['max_rows'] === self::ALL_ROWS)
             || ($pos_next > $total)
         ) {
-
             $first_shown_rec = $_SESSION['tmpval']['pos'];
             $last_shown_rec  = $total - 1;
-
         } else {
-
             $first_shown_rec = $_SESSION['tmpval']['pos'];
             $last_shown_rec  = $pos_next - 1;
-
         }
 
-        $table = new Table($this->__get('table'), $this->__get('db'));
+        $table = new Table($this->properties['table'], $this->properties['db']);
         if ($table->isView()
             && ($total == $GLOBALS['cfg']['MaxExactCountViews'])
         ) {
-
             $message = Message::notice(
                 __(
                     'This view has at least this number of rows. '
@@ -4544,8 +4516,7 @@ class Results
 
             $message->addParam('[doc@cfg_MaxExactCount]');
             $message->addParam('[/doc]');
-            $message_view_warning = Util::showHint($message);
-
+            $message_view_warning = Generator::showHint($message);
         } else {
             $message_view_warning = false;
         }
@@ -4562,7 +4533,6 @@ class Results
         $message->addText('(');
 
         if ($message_view_warning === false) {
-
             if (isset($unlim_num_rows) && ($unlim_num_rows != $total)) {
                 $message_total = Message::notice(
                     $pre_count . __('%1$d total, %2$d in query')
@@ -4574,7 +4544,7 @@ class Results
                 $message_total->addParam($total);
             }
 
-            if (!empty($after_count)) {
+            if (! empty($after_count)) {
                 $message_total->addHtml($after_count);
             }
             $message->addMessage($message_total, '');
@@ -4583,28 +4553,28 @@ class Results
         }
 
         $message_qt = Message::notice(__('Query took %01.4f seconds.') . ')');
-        $message_qt->addParam($this->__get('querytime'));
+        $message_qt->addParam($this->properties['querytime']);
 
         $message->addMessage($message_qt, '');
-        if (! is_null($sorted_column_message)) {
+        if ($sorted_column_message !== null) {
             $message->addHtml($sorted_column_message, '');
         }
 
         return $message;
-    } // end of the '_setMessageInformation()' function
+    }
 
     /**
      * Set the value of $map array for linking foreign key related tables
      *
-     * @param array &$map the list of relations
-     *
-     * @return  void
-     *
-     * @access  private
-     *
      * @see      getTable()
+     *
+     * @param array $map the list of relations
+     *
+     * @return void
+     *
+     * @access private
      */
-    private function _setParamForLinkForeignKeyRelatedTables(array &$map)
+    private function setParamForLinkForeignKeyRelatedTables(array &$map)
     {
         // To be able to later display a link to the related table,
         // we verify both types of relations: either those that are
@@ -4613,496 +4583,245 @@ class Results
         // to use the "column to display" notion (for example show
         // the name related to a numeric id).
         $exist_rel = $this->relation->getForeigners(
-            $this->__get('db'), $this->__get('table'), '', self::POSITION_BOTH
+            $this->properties['db'],
+            $this->properties['table'],
+            '',
+            self::POSITION_BOTH
         );
 
-        if (! empty($exist_rel)) {
+        if (empty($exist_rel)) {
+            return;
+        }
 
-            foreach ($exist_rel as $master_field => $rel) {
-                if ($master_field != 'foreign_keys_data') {
-                    $display_field = $this->relation->getDisplayField(
-                        $rel['foreign_db'], $rel['foreign_table']
-                    );
-                    $map[$master_field] = array(
-                        $rel['foreign_table'],
-                        $rel['foreign_field'],
-                        $display_field,
-                        $rel['foreign_db']
-                    );
-                } else {
-                    foreach ($rel as $key => $one_key) {
-                        foreach ($one_key['index_list'] as $index => $one_field) {
-                            $display_field = $this->relation->getDisplayField(
-                                isset($one_key['ref_db_name'])
-                                ? $one_key['ref_db_name']
-                                : $GLOBALS['db'],
-                                $one_key['ref_table_name']
-                            );
+        foreach ($exist_rel as $master_field => $rel) {
+            if ($master_field !== 'foreign_keys_data') {
+                $display_field = $this->relation->getDisplayField(
+                    $rel['foreign_db'],
+                    $rel['foreign_table']
+                );
+                $map[$master_field] = [
+                    $rel['foreign_table'],
+                    $rel['foreign_field'],
+                    $display_field,
+                    $rel['foreign_db'],
+                ];
+            } else {
+                foreach ($rel as $key => $one_key) {
+                    foreach ($one_key['index_list'] as $index => $one_field) {
+                        $display_field = $this->relation->getDisplayField(
+                            $one_key['ref_db_name'] ?? $GLOBALS['db'],
+                            $one_key['ref_table_name']
+                        );
 
-                            $map[$one_field] = array(
-                                $one_key['ref_table_name'],
-                                $one_key['ref_index_list'][$index],
-                                $display_field,
-                                isset($one_key['ref_db_name'])
-                                ? $one_key['ref_db_name']
-                                : $GLOBALS['db']
-                            );
-                        }
+                        $map[$one_field] = [
+                            $one_key['ref_table_name'],
+                            $one_key['ref_index_list'][$index],
+                            $display_field,
+                            $one_key['ref_db_name'] ?? $GLOBALS['db'],
+                        ];
                     }
                 }
-            } // end while
-        } // end if
-
-    } // end of the '_setParamForLinkForeignKeyRelatedTables()' function
-
+            }
+        }
+    }
 
     /**
      * Prepare multi field edit/delete links
      *
-     * @param integer &$dt_result           the link id associated to the query which
-     *                                      results have to be displayed
-     * @param array   $analyzed_sql_results analyzed sql results
-     * @param string  $del_link             the display element - 'del_link'
-     *
-     * @return string $links_html html content
-     *
-     * @access  private
-     *
      * @see     getTable()
+     *
+     * @param int    $dt_result            the link id associated to the query which
+     *                                     results have to be displayed
+     * @param array  $analyzed_sql_results analyzed sql results
+     * @param string $del_link             the display element - 'del_link'
+     *
+     * @return array
      */
-    private function _getMultiRowOperationLinks(
-        &$dt_result, array $analyzed_sql_results, $del_link
-    ) {
+    private function getBulkLinks(
+        &$dt_result,
+        array $analyzed_sql_results,
+        $del_link
+    ): array {
+        global $dbi;
 
-        $links_html = '<div class="print_ignore" >';
-        $url_query = $this->__get('url_query');
-        $delete_text = ($del_link == self::DELETE_ROW) ? __('Delete') : __('Kill');
-
-        $links_html .= '<img class="selectallarrow" width="38" height="22"'
-            . ' src="' . $this->__get('pma_theme_image') . 'arrow_'
-            . $this->__get('text_dir') . '.png' . '"'
-            . ' alt="' . __('With selected:') . '" />';
-
-        $links_html .= '<input type="checkbox" '
-            . 'id="resultsForm_' . $this->__get('unique_id') . '_checkall" '
-            . 'class="checkall_box" title="' . __('Check all') . '" /> '
-            . '<label for="resultsForm_' . $this->__get('unique_id') . '_checkall">'
-            . __('Check all') . '</label> '
-            . '<i style="margin-left: 2em">' . __('With selected:') . '</i>' . "\n";
-
-        $links_html .= Util::getButtonOrImage(
-            'submit_mult', 'mult_submit',
-            __('Edit'), 'b_edit', 'edit'
-        );
-
-        $links_html .= Util::getButtonOrImage(
-            'submit_mult', 'mult_submit',
-            __('Copy'), 'b_insrow', 'copy'
-        );
-
-        $links_html .= Util::getButtonOrImage(
-            'submit_mult', 'mult_submit',
-            $delete_text, 'b_drop', 'delete'
-        );
-
-        if ($analyzed_sql_results['querytype'] == 'SELECT') {
-            $links_html .= Util::getButtonOrImage(
-                'submit_mult', 'mult_submit',
-                __('Export'), 'b_tblexport', 'export'
-            );
-        }
-
-        $links_html .= "</div>\n";
-
-        $links_html .= '<input type="hidden" name="sql_query"'
-            . ' value="' . htmlspecialchars($this->__get('sql_query')) . '" />'
-            . "\n";
-
-        if (! empty($url_query)) {
-            $links_html .= '<input type="hidden" name="url_query"'
-                . ' value="' . $url_query . '" />' . "\n";
+        if ($del_link !== self::DELETE_ROW) {
+            return [];
         }
 
         // fetch last row of the result set
-        $GLOBALS['dbi']->dataSeek($dt_result, $this->__get('num_rows') - 1);
-        $row = $GLOBALS['dbi']->fetchRow($dt_result);
+        $dbi->dataSeek(
+            $dt_result,
+            $this->properties['num_rows'] > 0 ? $this->properties['num_rows'] - 1 : 0
+        );
+        $row = $dbi->fetchRow($dt_result);
 
         // @see DbiMysqi::fetchRow & DatabaseInterface::fetchRow
         if (! is_array($row)) {
-            $row = array();
+            $row = [];
         }
 
-        // $clause_is_unique is needed by getTable() to generate the proper param
-        // in the multi-edit and multi-delete form
-        list($where_clause, $clause_is_unique, $condition_array)
-            = Util::getUniqueCondition(
-                $dt_result, // handle
-                $this->__get('fields_cnt'), // fields_cnt
-                $this->__get('fields_meta'), // fields_meta
-                $row, // row
-                false, // force_unique
-                false, // restrict_to_table
-                $analyzed_sql_results // analyzed_sql_results
-            );
-        unset($where_clause, $condition_array);
+        $expressions = [];
 
-        // reset to first row for the loop in _getTableBody()
-        $GLOBALS['dbi']->dataSeek($dt_result, 0);
-
-        $links_html .= '<input type="hidden" name="clause_is_unique"'
-            . ' value="' . $clause_is_unique . '" />' . "\n";
-
-        $links_html .= '</form>' . "\n";
-
-        return $links_html;
-
-    } // end of the '_getMultiRowOperationLinks()' function
-
-
-    /**
-     * Prepare table navigation bar at the top or bottom
-     *
-     * @param integer $pos_next         the offset for the "next" page
-     * @param integer $pos_prev         the offset for the "previous" page
-     * @param string  $place            the place to show navigation
-     * @param boolean $is_innodb        whether its InnoDB or not
-     * @param string  $sort_by_key_html the sort by key dialog
-     *
-     * @return  string  html content of navigation bar
-     *
-     * @access  private
-     *
-     * @see     _getTable()
-     */
-    private function _getPlacedTableNavigations(
-        $pos_next, $pos_prev, $place, $is_innodb, $sort_by_key_html
-    ) {
-
-        $navigation_html = '';
-
-        if ($place == self::PLACE_BOTTOM_DIRECTION_DROPDOWN) {
-            $navigation_html .= '<br />' . "\n";
+        if (isset($analyzed_sql_results['statement'])
+            && $analyzed_sql_results['statement'] instanceof SelectStatement
+        ) {
+            $expressions = $analyzed_sql_results['statement']->expr;
         }
 
-        $navigation_html .= $this->_getTableNavigation(
-            $pos_next, $pos_prev, $is_innodb, $sort_by_key_html
+        /**
+         * $clause_is_unique is needed by getTable() to generate the proper param
+         * in the multi-edit and multi-delete form
+         */
+        [, $clause_is_unique] = Util::getUniqueCondition(
+            $dt_result,
+            $this->properties['fields_cnt'],
+            $this->properties['fields_meta'],
+            $row,
+            false,
+            false,
+            $expressions
         );
 
-        if ($place == self::PLACE_TOP_DIRECTION_DROPDOWN) {
-            $navigation_html .= "\n";
-        }
+        // reset to first row for the loop in getTableBody()
+        $dbi->dataSeek($dt_result, 0);
 
-        return $navigation_html;
-
-    } // end of the '_getPlacedTableNavigations()' function
-
-    /**
-     * Generates HTML to display the Create view in span tag
-     *
-     * @param array  $analyzed_sql_results analyzed sql results
-     * @param string $url_query            String with URL Parameters
-     *
-     * @return string
-     *
-     * @access private
-     *
-     * @see _getResultsOperations()
-     */
-    private function _getLinkForCreateView(array $analyzed_sql_results, $url_query)
-    {
-        $results_operations_html = '';
-        if (empty($analyzed_sql_results['procedure'])) {
-
-            $results_operations_html .= '<span>'
-                . Util::linkOrButton(
-                    'view_create.php' . $url_query,
-                    Util::getIcon(
-                        'b_view_add', __('Create view'), true
-                    ),
-                    array('class' => 'create_view ajax')
-                )
-                . '</span>' . "\n";
-        }
-        return $results_operations_html;
-
-    }
-
-    /**
-     * Calls the _getResultsOperations with $only_view as true
-     *
-     * @param array $analyzed_sql_results analyzed sql results
-     *
-     * @return string
-     *
-     * @access public
-     *
-     */
-    public function getCreateViewQueryResultOp(array $analyzed_sql_results)
-    {
-
-        $results_operations_html = '';
-        //calling to _getResultOperations with a fake $displayParts
-        //and setting only_view parameter to be true to generate just view
-        $results_operations_html .= $this->_getResultsOperations(
-            array(),
-            $analyzed_sql_results,
-            true
-        );
-        return $results_operations_html;
-    }
-
-    /**
-     * Get copy to clipboard links for results operations
-     *
-     * @return string $html
-     *
-     * @access  private
-     */
-    private function _getCopytoclipboardLinks()
-    {
-        $html = Util::linkOrButton(
-            '#',
-            Util::getIcon(
-                'b_insrow', __('Copy to clipboard'), true
-            ),
-            array('id' => 'copyToClipBoard')
-        );
-
-        return $html;
-    }
-
-    /**
-     * Get printview links for results operations
-     *
-     * @return string $html
-     *
-     * @access  private
-     */
-    private function _getPrintviewLinks()
-    {
-        $html = Util::linkOrButton(
-            '#',
-            Util::getIcon(
-                'b_print', __('Print'), true
-            ),
-            array('id' => 'printView'),
-            'print_view'
-        );
-
-        return $html;
+        return [
+            'has_export_button' => $analyzed_sql_results['querytype'] === 'SELECT',
+            'clause_is_unique' => $clause_is_unique,
+        ];
     }
 
     /**
      * Get operations that are available on results.
      *
-     * @param array   $displayParts         the parts to display
-     * @param array   $analyzed_sql_results analyzed sql results
-     * @param boolean $only_view            Whether to show only view
-     *
-     * @return string $results_operations_html  html content
-     *
-     * @access  private
-     *
      * @see     getTable()
+     *
+     * @param array $displayParts         the parts to display
+     * @param array $analyzed_sql_results analyzed sql results
+     *
+     * @return array<string, bool|array<string, string>>
      */
-    private function _getResultsOperations(
-        array $displayParts, array $analyzed_sql_results, $only_view = false
-    ) {
-        global $printview;
+    private function getResultsOperations(
+        array $displayParts,
+        array $analyzed_sql_results
+    ): array {
+        global $printview, $dbi;
 
-        $results_operations_html = '';
-        $fields_meta = $this->__get('fields_meta'); // To safe use in foreach
-        $header_shown = false;
-        $header = '<fieldset class="print_ignore" ><legend>'
-            . __('Query results operations') . '</legend>';
+        $_url_params = [
+            'db'        => $this->properties['db'],
+            'table'     => $this->properties['table'],
+            'printview' => '1',
+            'sql_query' => $this->properties['sql_query'],
+        ];
 
-        $_url_params = array(
-                    'db'        => $this->__get('db'),
-                    'table'     => $this->__get('table'),
-                    'printview' => '1',
-                    'sql_query' => $this->__get('sql_query'),
-                );
-        $url_query = Url::getCommon($_url_params);
-
-        if (!$header_shown) {
-            $results_operations_html .= $header;
-            $header_shown = true;
-        }
-        // if empty result set was produced we need to
-        // show only view and not other options
-        if ($only_view) {
-            $results_operations_html .= $this->_getLinkForCreateView(
-                $analyzed_sql_results, $url_query
-            );
-
-            if ($header_shown) {
-                $results_operations_html .= '</fieldset><br />';
-            }
-            return $results_operations_html;
-        }
-
-        // Displays "printable view" link if required
-        if ($displayParts['pview_lnk'] == '1') {
-            $results_operations_html .= $this->_getPrintviewLinks();
-            $results_operations_html .= $this->_getCopytoclipboardLinks();
-        } // end displays "printable view"
+        $geometry_found = false;
 
         // Export link
-        // (the url_query has extra parameters that won't be used to export)
-        // (the single_table parameter is used in Export::getDisplay()
+        // (the single_table parameter is used in \PhpMyAdmin\Export->getDisplay()
         //  to hide the SQL and the structure export dialogs)
         // If the parser found a PROCEDURE clause
         // (most probably PROCEDURE ANALYSE()) it makes no sense to
         // display the Export link).
-        if (($analyzed_sql_results['querytype'] == self::QUERY_TYPE_SELECT)
+        if (($analyzed_sql_results['querytype'] === self::QUERY_TYPE_SELECT)
             && ! isset($printview)
             && empty($analyzed_sql_results['procedure'])
         ) {
-
-            if (count($analyzed_sql_results['select_tables']) == 1) {
+            if (count($analyzed_sql_results['select_tables']) === 1) {
                 $_url_params['single_table'] = 'true';
             }
 
-            if (! $header_shown) {
-                $results_operations_html .= $header;
-                $header_shown = true;
+            // In case this query doesn't involve any tables,
+            // implies only raw query is to be exported
+            if (! $analyzed_sql_results['select_tables']) {
+                $_url_params['raw_query'] = 'true';
             }
 
-            $_url_params['unlim_num_rows'] = $this->__get('unlim_num_rows');
+            $_url_params['unlim_num_rows'] = $this->properties['unlim_num_rows'];
 
             /**
              * At this point we don't know the table name; this can happen
              * for example with a query like
              * SELECT bike_code FROM (SELECT bike_code FROM bikes) tmp
              * As a workaround we set in the table parameter the name of the
-             * first table of this database, so that tbl_export.php and
+             * first table of this database, so that /table/export and
              * the script it calls do not fail
              */
             if (empty($_url_params['table']) && ! empty($_url_params['db'])) {
-                $_url_params['table'] = $GLOBALS['dbi']->fetchValue("SHOW TABLES");
+                $_url_params['table'] = $dbi->fetchValue('SHOW TABLES');
                 /* No result (probably no database selected) */
                 if ($_url_params['table'] === false) {
                     unset($_url_params['table']);
                 }
             }
 
-            $results_operations_html .= Util::linkOrButton(
-                'tbl_export.php' . Url::getCommon($_url_params),
-                Util::getIcon(
-                    'b_tblexport', __('Export'), true
-                )
-            )
-            . "\n";
-
-            // prepare chart
-            $results_operations_html .= Util::linkOrButton(
-                'tbl_chart.php' . Url::getCommon($_url_params),
-                Util::getIcon(
-                    'b_chart', __('Display chart'), true
-                )
-            )
-            . "\n";
-
-            // prepare GIS chart
-            $geometry_found = false;
-            // If at least one geometry field is found
+            $fields_meta = $this->properties['fields_meta'];
             foreach ($fields_meta as $meta) {
-                if ($meta->type == self::GEOMETRY_FIELD) {
+                if ($meta->type === self::GEOMETRY_FIELD) {
                     $geometry_found = true;
                     break;
                 }
             }
-
-            if ($geometry_found) {
-                $results_operations_html
-                    .= Util::linkOrButton(
-                        'tbl_gis_visualization.php'
-                        . Url::getCommon($_url_params),
-                        Util::getIcon(
-                            'b_globe',
-                            __('Visualize GIS data'),
-                            true
-                        )
-                    )
-                    . "\n";
-            }
         }
 
-        // CREATE VIEW
-        /**
-         *
-         * @todo detect privileges to create a view
-         *       (but see 2006-01-19 note in PhpMyAdmin\Display\CreateTable,
-         *        I think we cannot detect db-specific privileges reliably)
-         * Note: we don't display a Create view link if we found a PROCEDURE clause
-         */
-        if (!$header_shown) {
-            $results_operations_html .= $header;
-            $header_shown = true;
-        }
-
-        $results_operations_html .= $this->_getLinkForCreateView(
-            $analyzed_sql_results, $url_query
-        );
-
-        if ($header_shown) {
-            $results_operations_html .= '</fieldset><br />';
-        }
-
-        return $results_operations_html;
-
-    } // end of the '_getResultsOperations()' function
-
+        return [
+            'has_procedure' => ! empty($analyzed_sql_results['procedure']),
+            'has_geometry' => $geometry_found,
+            'has_print_link' => $displayParts['pview_lnk'] == '1',
+            'has_export_link' => $analyzed_sql_results['querytype'] === self::QUERY_TYPE_SELECT && ! isset($printview),
+            'url_params' => $_url_params,
+        ];
+    }
 
     /**
      * Verifies what to do with non-printable contents (binary or BLOB)
      * in Browse mode.
      *
-     * @param string  $category              BLOB|BINARY|GEOMETRY
-     * @param string  $content               the binary content
-     * @param mixed   $transformation_plugin transformation plugin.
-     *                                       Can also be the default function:
-     *                                       Core::mimeDefaultFunction
-     * @param string  $transform_options     transformation parameters
-     * @param string  $default_function      default transformation function
-     * @param object  $meta                  the meta-information about the field
-     * @param array   $url_params            parameters that should go to the
-     *                                       download link
-     * @param boolean &$is_truncated         the result is truncated or not
+     * @see getDataCellForGeometryColumns(), getDataCellForNonNumericColumns(), getSortedColumnMessage()
+     *
+     * @param string      $category              BLOB|BINARY|GEOMETRY
+     * @param string|null $content               the binary content
+     * @param mixed       $transformation_plugin transformation plugin.
+     *                                           Can also be the
+     *                                           default function:
+     *                                           Core::mimeDefaultFunction
+     * @param array       $transform_options     transformation parameters
+     * @param string      $default_function      default transformation function
+     * @param stdClass    $meta                  the meta-information about the field
+     * @param array       $url_params            parameters that should go to the
+     *                                           download link
+     * @param bool        $is_truncated          the result is truncated or not
      *
      * @return mixed  string or float
      *
-     * @access  private
-     *
-     * @see     _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns(),
-     *          _getSortedColumnMessage()
+     * @access private
      */
-    private function _handleNonPrintableContents(
-        $category, $content, $transformation_plugin, $transform_options,
-        $default_function, $meta, array $url_params = array(), &$is_truncated = null
+    private function handleNonPrintableContents(
+        $category,
+        ?string $content,
+        $transformation_plugin,
+        $transform_options,
+        $default_function,
+        $meta,
+        array $url_params = [],
+        &$is_truncated = null
     ) {
-
         $is_truncated = false;
         $result = '[' . $category;
 
-        if (isset($content)) {
-
+        if ($content !== null) {
             $size = strlen($content);
             $display_size = Util::formatByteDown($size, 3, 1);
             $result .= ' - ' . $display_size[0] . ' ' . $display_size[1];
-
         } else {
-
             $result .= ' - NULL';
             $size = 0;
-
+            $content = '';
         }
 
         $result .= ']';
 
         // if we want to use a text transformation on a BLOB column
-        if (gettype($transformation_plugin) === "object") {
+        if (is_object($transformation_plugin)) {
             $posMimeOctetstream = strpos(
                 $transformation_plugin->getMIMESubtype(),
                 'Octetstream'
@@ -5113,12 +4832,12 @@ class Results
             ) {
                 // Applying Transformations on hex string of binary data
                 // seems more appropriate
-                $result = pack("H*", bin2hex($content));
+                $result = pack('H*', bin2hex($content));
             }
         }
 
         if ($size <= 0) {
-            return($result);
+            return $result;
         }
 
         if ($default_function != $transformation_plugin) {
@@ -5127,63 +4846,64 @@ class Results
                 $transform_options,
                 $meta
             );
-            return($result);
+
+            return $result;
         }
 
-        $result = $default_function($result, array(), $meta);
+        $result = $default_function($result, [], $meta);
         if (($_SESSION['tmpval']['display_binary']
             && $meta->type === self::STRING_FIELD)
             || ($_SESSION['tmpval']['display_blob']
-            && stristr($meta->type, self::BLOB_FIELD))
+            && stripos($meta->type, self::BLOB_FIELD) !== false)
         ) {
             // in this case, restart from the original $content
             if (mb_check_encoding($content, 'utf-8')
-                && !preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', $content)
+                && ! preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', $content)
             ) {
                 // show as text if it's valid utf-8
                 $result = htmlspecialchars($content);
             } else {
                 $result = '0x' . bin2hex($content);
             }
-            list(
+            [
                 $is_truncated,
                 $result,
                 // skip 3rd param
-            ) = $this->_getPartialText($result);
+            ] = $this->getPartialText($result);
         }
 
         /* Create link to download */
 
         // in PHP < 5.5, empty() only checks variables
-        $tmpdb = $this->__get('db');
+        $tmpdb = $this->properties['db'];
         if (count($url_params) > 0
-            && (!empty($tmpdb) && !empty($meta->orgtable))
+            && (! empty($tmpdb) && ! empty($meta->orgtable))
         ) {
-            $result = '<a href="tbl_get_field.php'
-                . Url::getCommon($url_params)
+            $url_params['where_clause_sign'] = Core::signSqlQuery($url_params['where_clause']);
+            $result = '<a href="'
+                . Url::getFromRoute('/table/get-field', $url_params)
                 . '" class="disableAjax">'
                 . $result . '</a>';
         }
 
-        return($result);
-
-    } // end of the '_handleNonPrintableContents()' function
-
+        return $result;
+    }
 
     /**
      * Retrieves the associated foreign key info for a data cell
      *
-     * @param array  $map              the list of relations
-     * @param object $meta             the meta-information about the field
-     * @param string $where_comparison data for the where clause
+     * @param array    $map              the list of relations
+     * @param stdClass $meta             the meta-information about the field
+     * @param string   $where_comparison data for the where clause
      *
-     * @return string  formatted data
+     * @return string|null  formatted data
      *
-     * @access  private
-     *
+     * @access private
      */
-    private function _getFromForeign(array $map, $meta, $where_comparison)
+    private function getFromForeign(array $map, $meta, $where_comparison)
     {
+        global $dbi;
+
         $dispsql = 'SELECT '
             . Util::backquote($map[$meta->name][2])
             . ' FROM '
@@ -5194,19 +4914,19 @@ class Results
             . Util::backquote($map[$meta->name][1])
             . $where_comparison;
 
-        $dispresult = $GLOBALS['dbi']->tryQuery(
+        $dispresult = $dbi->tryQuery(
             $dispsql,
             DatabaseInterface::CONNECT_USER,
             DatabaseInterface::QUERY_STORE
         );
 
-        if ($dispresult && $GLOBALS['dbi']->numRows($dispresult) > 0) {
-            list($dispval) = $GLOBALS['dbi']->fetchRow($dispresult, 0);
+        if ($dispresult && $dbi->numRows($dispresult) > 0) {
+            [$dispval] = $dbi->fetchRow($dispresult);
         } else {
             $dispval = __('Link not found!');
         }
 
-        $GLOBALS['dbi']->freeResult($dispresult);
+        $dbi->freeResult($dispresult);
 
         return $dispval;
     }
@@ -5215,41 +4935,52 @@ class Results
      * Prepares the displayable content of a data cell in Browse mode,
      * taking into account foreign key description field and transformations
      *
-     * @param string        $class                 css classes for the td element
-     * @param bool          $condition_field       whether the column is a part of
-     *                                             the where clause
-     * @param array         $analyzed_sql_results  the analyzed query
-     * @param object        $meta                  the meta-information about the
-     *                                             field
-     * @param array         $map                   the list of relations
-     * @param string        $data                  data
-     * @param object|string $transformation_plugin transformation plugin.
-     *                                             Can also be the default function:
-     *                                             Core::mimeDefaultFunction
-     * @param string        $default_function      default function
-     * @param string        $nowrap                'nowrap' if the content should
-     *                                             not be wrapped
-     * @param string        $where_comparison      data for the where clause
-     * @param array         $transform_options     options for transformation
-     * @param bool          $is_field_truncated    whether the field is truncated
-     * @param string        $original_length       of a truncated column, or ''
+     * @see     getDataCellForNumericColumns(), getDataCellForGeometryColumns(),
+     *          getDataCellForNonNumericColumns(),
+     *
+     * @param string                $class                 css classes for the td element
+     * @param bool                  $condition_field       whether the column is a part of
+     *                                                     the where clause
+     * @param array                 $analyzed_sql_results  the analyzed query
+     * @param stdClass              $meta                  the meta-information about the
+     *                                                     field
+     * @param array                 $map                   the list of relations
+     * @param string                $data                  data
+     * @param string                $displayedData         data that will be displayed (maybe be chunked)
+     * @param TransformationsPlugin $transformation_plugin transformation plugin.
+     *                                                     Can also be the default function:
+     *                                                     Core::mimeDefaultFunction
+     * @param string                $default_function      default function
+     * @param string                $nowrap                'nowrap' if the content should
+     *                                                     not be wrapped
+     * @param string                $where_comparison      data for the where clause
+     * @param array                 $transform_options     options for transformation
+     * @param bool                  $is_field_truncated    whether the field is truncated
+     * @param string                $original_length       of a truncated column, or ''
      *
      * @return string  formatted data
      *
-     * @access  private
-     *
-     * @see     _getDataCellForNumericColumns(), _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns(),
-     *
+     * @access private
      */
-    private function _getRowData(
-        $class, $condition_field, array $analyzed_sql_results, $meta, array $map, $data,
-        $transformation_plugin, $default_function, $nowrap, $where_comparison,
-        array $transform_options, $is_field_truncated, $original_length=''
+    private function getRowData(
+        $class,
+        $condition_field,
+        array $analyzed_sql_results,
+        $meta,
+        array $map,
+        $data,
+        $displayedData,
+        $transformation_plugin,
+        $default_function,
+        $nowrap,
+        $where_comparison,
+        array $transform_options,
+        $is_field_truncated,
+        $original_length = ''
     ) {
         $relational_display = $_SESSION['tmpval']['relational_display'];
-        $printview = $this->__get('printview');
-        $decimals = isset($meta->decimals) ? $meta->decimals : '-1';
+        $printview = $this->properties['printview'];
+        $decimals = $meta->decimals ?? '-1';
         $result = '<td data-decimals="' . $decimals . '"'
             . ' data-type="' . $meta->type . '"';
 
@@ -5259,38 +4990,45 @@ class Results
         }
 
         $result .= ' class="'
-            . $this->_addClass(
-                $class, $condition_field, $meta, $nowrap,
-                $is_field_truncated, $transformation_plugin, $default_function
+            . $this->addClass(
+                $class,
+                $condition_field,
+                $meta,
+                $nowrap,
+                $is_field_truncated,
+                $transformation_plugin,
+                $default_function
             )
             . '">';
 
-        if (!empty($analyzed_sql_results['statement']->expr)) {
+        if (! empty($analyzed_sql_results['statement']->expr)) {
             foreach ($analyzed_sql_results['statement']->expr as $expr) {
-                if ((empty($expr->alias)) || (empty($expr->column))) {
+                if (empty($expr->alias) || empty($expr->column)) {
                     continue;
                 }
-                if (strcasecmp($meta->name, $expr->alias) == 0) {
-                    $meta->name = $expr->column;
+                if (strcasecmp($meta->name, $expr->alias) != 0) {
+                    continue;
                 }
+
+                $meta->name = $expr->column;
             }
         }
 
         if (isset($map[$meta->name])) {
-
             // Field to display from the foreign table?
             if (isset($map[$meta->name][2])
-                && strlen($map[$meta->name][2]) > 0
+                && strlen((string) $map[$meta->name][2]) > 0
             ) {
-                $dispval = $this->_getFromForeign(
-                    $map, $meta, $where_comparison
+                $dispval = $this->getFromForeign(
+                    $map,
+                    $meta,
+                    $where_comparison
                 );
             } else {
                 $dispval = '';
-            } // end if... else...
+            }
 
             if (isset($printview) && ($printview == '1')) {
-
                 $result .= ($transformation_plugin != $default_function
                     ? $transformation_plugin->applyTransformation(
                         $data,
@@ -5300,66 +5038,64 @@ class Results
                     : $default_function($data)
                 )
                 . ' <code>[-&gt;' . $dispval . ']</code>';
-
             } else {
-
-                if ($relational_display == self::RELATIONAL_KEY) {
-
+                if ($relational_display === self::RELATIONAL_KEY) {
                     // user chose "relational key" in the display options, so
                     // the title contains the display field
-                    $title = (! empty($dispval))
+                    $title = ! empty($dispval)
                         ? htmlspecialchars($dispval)
                         : '';
-
                 } else {
                     $title = htmlspecialchars($data);
                 }
 
-                $_url_params = array(
+                $sqlQuery = 'SELECT * FROM '
+                    . Util::backquote($map[$meta->name][3]) . '.'
+                    . Util::backquote($map[$meta->name][0])
+                    . ' WHERE '
+                    . Util::backquote($map[$meta->name][1])
+                    . $where_comparison;
+
+                $_url_params = [
                     'db'    => $map[$meta->name][3],
                     'table' => $map[$meta->name][0],
                     'pos'   => '0',
-                    'sql_query' => 'SELECT * FROM '
-                        . Util::backquote($map[$meta->name][3]) . '.'
-                        . Util::backquote($map[$meta->name][0])
-                        . ' WHERE '
-                        . Util::backquote($map[$meta->name][1])
-                        . $where_comparison,
-                );
+                    'sql_signature' => Core::signSqlQuery($sqlQuery),
+                    'sql_query' => $sqlQuery,
+                ];
 
                 if ($transformation_plugin != $default_function) {
                     // always apply a transformation on the real data,
                     // not on the display field
-                    $message = $transformation_plugin->applyTransformation(
+                    $displayedData = $transformation_plugin->applyTransformation(
                         $data,
                         $transform_options,
                         $meta
                     );
                 } else {
-
-                    if ($relational_display == self::RELATIONAL_DISPLAY_COLUMN
+                    if ($relational_display === self::RELATIONAL_DISPLAY_COLUMN
                         && ! empty($map[$meta->name][2])
                     ) {
                         // user chose "relational display field" in the
                         // display options, so show display field in the cell
-                        $message = $default_function($dispval);
+                        $displayedData = $dispval === null ? '<em>NULL</em>' : $default_function($dispval);
                     } else {
                         // otherwise display data in the cell
-                        $message = $default_function($data);
+                        $displayedData = $default_function($displayedData);
                     }
-
                 }
 
-                $tag_params = array('title' => $title);
+                $tag_params = ['title' => $title];
                 if (strpos($class, 'grid_edit') !== false) {
                     $tag_params['class'] = 'ajax';
                 }
-                $result .= Util::linkOrButton(
-                    'sql.php' . Url::getCommon($_url_params),
-                    $message, $tag_params
+                $result .= Generator::linkOrButton(
+                    Url::getFromRoute('/sql'),
+                    $_url_params,
+                    $displayedData,
+                    $tag_params
                 );
             }
-
         } else {
             $result .= ($transformation_plugin != $default_function
                 ? $transformation_plugin->applyTransformation(
@@ -5374,295 +5110,41 @@ class Results
         $result .= '</td>' . "\n";
 
         return $result;
-
-    } // end of the '_getRowData()' function
-
-
-    /**
-     * Prepares a checkbox for multi-row submits
-     *
-     * @param string $del_url           delete url
-     * @param array  $displayParts      array with explicit indexes for all
-     *                                  the display elements
-     * @param string $row_no            the row number
-     * @param string $where_clause_html url encoded where clause
-     * @param array  $condition_array   array of conditions in the where clause
-     * @param string $id_suffix         suffix for the id
-     * @param string $class             css classes for the td element
-     *
-     * @return string  the generated HTML
-     *
-     * @access  private
-     *
-     * @see     _getTableBody(), _getCheckboxAndLinks()
-     */
-    private function _getCheckboxForMultiRowSubmissions(
-        $del_url, array $displayParts, $row_no, $where_clause_html, array $condition_array,
-        $id_suffix, $class
-    ) {
-
-        $ret = '';
-
-        if (! empty($del_url) && $displayParts['del_lnk'] != self::KILL_PROCESS) {
-
-            $ret .= '<td ';
-            if (! empty($class)) {
-                $ret .= 'class="' . $class . '"';
-            }
-
-            $ret .= ' class="center print_ignore">'
-                . '<input type="checkbox" id="id_rows_to_delete'
-                . $row_no . $id_suffix
-                . '" name="rows_to_delete[' . $row_no . ']"'
-                . ' class="multi_checkbox checkall"'
-                . ' value="' . $where_clause_html . '" '
-                . ' />'
-                . '<input type="hidden" class="condition_array" value="'
-                . htmlspecialchars(json_encode($condition_array)) . '" />'
-                . '    </td>';
-        }
-
-        return $ret;
-
-    } // end of the '_getCheckboxForMultiRowSubmissions()' function
-
-
-    /**
-     * Prepares an Edit link
-     *
-     * @param string $edit_url          edit url
-     * @param string $class             css classes for td element
-     * @param string $edit_str          text for the edit link
-     * @param string $where_clause      where clause
-     * @param string $where_clause_html url encoded where clause
-     *
-     * @return string  the generated HTML
-     *
-     * @access  private
-     *
-     * @see     _getTableBody(), _getCheckboxAndLinks()
-     */
-    private function _getEditLink(
-        $edit_url, $class, $edit_str, $where_clause, $where_clause_html
-    ) {
-
-        $ret = '';
-        if (! empty($edit_url)) {
-
-            $ret .= '<td class="' . $class . ' center print_ignore" '
-                . ' ><span class="nowrap">'
-                . Util::linkOrButton($edit_url, $edit_str);
-            /*
-             * Where clause for selecting this row uniquely is provided as
-             * a hidden input. Used by jQuery scripts for handling grid editing
-             */
-            if (! empty($where_clause)) {
-                $ret .= '<input type="hidden" class="where_clause" value ="'
-                    . $where_clause_html . '" />';
-            }
-            $ret .= '</span></td>';
-        }
-
-        return $ret;
-
-    } // end of the '_getEditLink()' function
-
-
-    /**
-     * Prepares an Copy link
-     *
-     * @param string $copy_url          copy url
-     * @param string $copy_str          text for the copy link
-     * @param string $where_clause      where clause
-     * @param string $where_clause_html url encoded where clause
-     * @param string $class             css classes for the td element
-     *
-     * @return string  the generated HTML
-     *
-     * @access  private
-     *
-     * @see     _getTableBody(), _getCheckboxAndLinks()
-     */
-    private function _getCopyLink(
-        $copy_url, $copy_str, $where_clause, $where_clause_html, $class
-    ) {
-
-        $ret = '';
-        if (! empty($copy_url)) {
-
-            $ret .= '<td class="';
-            if (! empty($class)) {
-                $ret .= $class . ' ';
-            }
-
-            $ret .= 'center print_ignore" ' . ' ><span class="nowrap">'
-               . Util::linkOrButton($copy_url, $copy_str);
-
-            /*
-             * Where clause for selecting this row uniquely is provided as
-             * a hidden input. Used by jQuery scripts for handling grid editing
-             */
-            if (! empty($where_clause)) {
-                $ret .= '<input type="hidden" class="where_clause" value="'
-                    . $where_clause_html . '" />';
-            }
-            $ret .= '</span></td>';
-        }
-
-        return $ret;
-
-    } // end of the '_getCopyLink()' function
-
-
-    /**
-     * Prepares a Delete link
-     *
-     * @param string $del_url delete url
-     * @param string $del_str text for the delete link
-     * @param string $js_conf text for the JS confirmation
-     * @param string $class   css classes for the td element
-     *
-     * @return string  the generated HTML
-     *
-     * @access  private
-     *
-     * @see     _getTableBody(), _getCheckboxAndLinks()
-     */
-    private function _getDeleteLink($del_url, $del_str, $js_conf, $class)
-    {
-
-        $ret = '';
-        if (empty($del_url)) {
-            return $ret;
-        }
-
-        $ret .= '<td class="';
-        if (! empty($class)) {
-            $ret .= $class . ' ';
-        }
-        $ajax = Response::getInstance()->isAjax() ? ' ajax' : '';
-        $ret .= 'center print_ignore" ' . ' >'
-            . Util::linkOrButton(
-                $del_url,
-                $del_str,
-                array('class' => 'delete_row requireConfirm' . $ajax)
-            )
-            . '<div class="hide">' . $js_conf . '</div>'
-            . '</td>';
-
-        return $ret;
-
-    } // end of the '_getDeleteLink()' function
-
-
-    /**
-     * Prepare checkbox and links at some position (left or right)
-     * (only called for horizontal mode)
-     *
-     * @param string $position          the position of the checkbox and links
-     * @param string $del_url           delete url
-     * @param array  $displayParts      array with explicit indexes for all the
-     *                                  display elements
-     * @param string $row_no            row number
-     * @param string $where_clause      where clause
-     * @param string $where_clause_html url encoded where clause
-     * @param array  $condition_array   array of conditions in the where clause
-     * @param string $edit_url          edit url
-     * @param string $copy_url          copy url
-     * @param string $class             css classes for the td elements
-     * @param string $edit_str          text for the edit link
-     * @param string $copy_str          text for the copy link
-     * @param string $del_str           text for the delete link
-     * @param string $js_conf           text for the JS confirmation
-     *
-     * @return string  the generated HTML
-     *
-     * @access  private
-     *
-     * @see     _getPlacedLinks()
-     */
-    private function _getCheckboxAndLinks(
-        $position, $del_url, array $displayParts, $row_no, $where_clause,
-        $where_clause_html, array $condition_array,
-        $edit_url, $copy_url, $class, $edit_str, $copy_str, $del_str, $js_conf
-    ) {
-
-        $ret = '';
-
-        if ($position == self::POSITION_LEFT) {
-
-            $ret .= $this->_getCheckboxForMultiRowSubmissions(
-                $del_url, $displayParts, $row_no, $where_clause_html,
-                $condition_array, '_left', ''
-            );
-
-            $ret .= $this->_getEditLink(
-                $edit_url, $class, $edit_str, $where_clause, $where_clause_html
-            );
-
-            $ret .= $this->_getCopyLink(
-                $copy_url, $copy_str, $where_clause, $where_clause_html, ''
-            );
-
-            $ret .= $this->_getDeleteLink($del_url, $del_str, $js_conf, '');
-
-        } elseif ($position == self::POSITION_RIGHT) {
-
-            $ret .= $this->_getDeleteLink($del_url, $del_str, $js_conf, '');
-
-            $ret .= $this->_getCopyLink(
-                $copy_url, $copy_str, $where_clause, $where_clause_html, ''
-            );
-
-            $ret .= $this->_getEditLink(
-                $edit_url, $class, $edit_str, $where_clause, $where_clause_html
-            );
-
-            $ret .= $this->_getCheckboxForMultiRowSubmissions(
-                $del_url, $displayParts, $row_no, $where_clause_html,
-                $condition_array, '_right', ''
-            );
-
-        } else { // $position == self::POSITION_NONE
-
-            $ret .= $this->_getCheckboxForMultiRowSubmissions(
-                $del_url, $displayParts, $row_no, $where_clause_html,
-                $condition_array, '_left', ''
-            );
-        }
-
-        return $ret;
-
-    } // end of the '_getCheckboxAndLinks()' function
+    }
 
     /**
      * Truncates given string based on LimitChars configuration
      * and Session pftext variable
      * (string is truncated only if necessary)
      *
+     * @see handleNonPrintableContents(), getDataCellForGeometryColumns(), getDataCellForNonNumericColumns
+     *
      * @param string $str string to be truncated
      *
-     * @return mixed
+     * @return array
      *
-     * @access  private
-     *
-     * @see     _handleNonPrintableContents(), _getDataCellForGeometryColumns(),
-     *          _getDataCellForNonNumericColumns
+     * @access private
      */
-    private function _getPartialText($str)
+    private function getPartialText($str): array
     {
         $original_length = mb_strlen($str);
         if ($original_length > $GLOBALS['cfg']['LimitChars']
             && $_SESSION['tmpval']['pftext'] === self::DISPLAY_PARTIAL_TEXT
         ) {
             $str = mb_substr(
-                $str, 0, $GLOBALS['cfg']['LimitChars']
+                $str,
+                0,
+                (int) $GLOBALS['cfg']['LimitChars']
             ) . '...';
             $truncated = true;
         } else {
             $truncated = false;
         }
 
-        return array($truncated, $str, $original_length);
+        return [
+            $truncated,
+            $str,
+            $original_length,
+        ];
     }
 }

@@ -1,13 +1,14 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Contains PhpMyAdmin\Plugins\Schema\Eps\RelationStatsEps class
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Plugins\Schema\Eps;
 
 use PhpMyAdmin\Plugins\Schema\RelationStats;
+use function sqrt;
 
 /**
  * Relation preferences/statistics
@@ -17,27 +18,33 @@ use PhpMyAdmin\Plugins\Schema\RelationStats;
  * master table's master field to foreign table's foreign key
  * in EPS document.
  *
- * @package PhpMyAdmin
- * @name    Relation_Stats_Eps
- * @see     PMA_EPS
+ * @see     Eps
+ *
+ * @name    RelationStatsEps
  */
 class RelationStatsEps extends RelationStats
 {
     /**
-     * The "PhpMyAdmin\Plugins\Schema\Eps\RelationStatsEps" constructor
-     *
-     * @param object $diagram       The EPS diagram
+     * @param Eps    $diagram       The EPS diagram
      * @param string $master_table  The master table name
      * @param string $master_field  The relation field in the master table
      * @param string $foreign_table The foreign table name
      * @param string $foreign_field The relation field in the foreign table
      */
     public function __construct(
-        $diagram, $master_table, $master_field, $foreign_table, $foreign_field
+        $diagram,
+        $master_table,
+        $master_field,
+        $foreign_table,
+        $foreign_field
     ) {
         $this->wTick = 10;
         parent::__construct(
-            $diagram, $master_table, $master_field, $foreign_table, $foreign_field
+            $diagram,
+            $master_table,
+            $master_field,
+            $foreign_table,
+            $foreign_field
         );
         $this->ySrc  += 10;
         $this->yDest += 10;
@@ -47,7 +54,7 @@ class RelationStatsEps extends RelationStats
      * draws relation links and arrows
      * shows foreign key relations
      *
-     * @see PMA_EPS
+     * @see Eps
      *
      * @return void
      */

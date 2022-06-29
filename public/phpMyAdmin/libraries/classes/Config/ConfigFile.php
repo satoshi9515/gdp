@@ -1,110 +1,121 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Config file management
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Config;
 
-use PhpMyAdmin\Config;
 use PhpMyAdmin\Core;
+use function array_diff;
+use function array_flip;
+use function array_keys;
+use function array_walk;
+use function count;
+use function is_array;
+use function preg_replace;
 
 /**
  * Config file management class.
  * Stores its data in $_SESSION
- *
- * @package PhpMyAdmin
  */
 class ConfigFile
 {
     /**
      * Stores default PMA config from config.default.php
+     *
      * @var array
      */
-    private $_defaultCfg;
+    private $defaultCfg;
 
     /**
      * Stores allowed values for non-standard fields
+     *
      * @var array
      */
-    private $_cfgDb;
+    private $cfgDb;
 
     /**
      * Stores original PMA config, not modified by user preferences
-     * @var Config
+     *
+     * @var array|null
      */
-    private $_baseCfg;
+    private $baseCfg;
 
     /**
      * Whether we are currently working in PMA Setup context
+     *
      * @var bool
      */
-    private $_isInSetup;
+    private $isInSetup;
 
     /**
      * Keys which will be always written to config file
+     *
      * @var array
      */
-    private $_persistKeys = array();
+    private $persistKeys = [];
 
     /**
      * Changes keys while updating config in {@link updateWithGlobalConfig()}
      * or reading by {@link getConfig()} or {@link getConfigArray()}
+     *
      * @var array
      */
-    private $_cfgUpdateReadMapping = array();
+    private $cfgUpdateReadMapping = [];
 
     /**
      * Key filter for {@link set()}
+     *
      * @var array|null
      */
-    private $_setFilter;
+    private $setFilter;
 
     /**
      * Instance id (key in $_SESSION array, separate for each server -
      * ConfigFile{server id})
+     *
      * @var string
      */
-    private $_id;
+    private $id;
 
     /**
-     * Result for {@link _flattenArray()}
+     * Result for {@link flattenArray()}
+     *
      * @var array|null
      */
-    private $_flattenArrayResult;
+    private $flattenArrayResult;
 
     /**
-     * Constructor
-     *
-     * @param array|null $base_config base configuration read from
-     *                                {@link PhpMyAdmin\Config::$base_config},
-     *                                use only when not in PMA Setup
+     * @param array|null $baseConfig base configuration read from
+     *                               {@link PhpMyAdmin\Config::$base_config},
+     *                               use only when not in PMA Setup
      */
-    public function __construct($base_config = null)
+    public function __construct($baseConfig = null)
     {
         // load default config values
-        $cfg = &$this->_defaultCfg;
-        include './libraries/config.default.php';
-        $cfg['fontsize'] = '82%';
+        $cfg = &$this->defaultCfg;
+        include ROOT_PATH . 'libraries/config.default.php';
 
         // load additional config information
-        $cfg_db = &$this->_cfgDb;
-        include './libraries/config.values.php';
+        $this->cfgDb = include ROOT_PATH . 'libraries/config.values.php';
 
         // apply default values overrides
-        if (count($cfg_db['_overrides'])) {
-            foreach ($cfg_db['_overrides'] as $path => $value) {
+        if (count($this->cfgDb['_overrides'])) {
+            foreach ($this->cfgDb['_overrides'] as $path => $value) {
                 Core::arrayWrite($path, $cfg, $value);
             }
         }
 
-        $this->_baseCfg = $base_config;
-        $this->_isInSetup = is_null($base_config);
-        $this->_id = 'ConfigFile' . $GLOBALS['server'];
-        if (!isset($_SESSION[$this->_id])) {
-            $_SESSION[$this->_id] = array();
+        $this->baseCfg = $baseConfig;
+        $this->isInSetup = $baseConfig === null;
+        $this->id = 'ConfigFile' . $GLOBALS['server'];
+        if (isset($_SESSION[$this->id])) {
+            return;
         }
+
+        $_SESSION[$this->id] = [];
     }
 
     /**
@@ -119,7 +130,7 @@ class ConfigFile
     {
         // checking key presence is much faster than searching so move values
         // to keys
-        $this->_persistKeys = array_flip($keys);
+        $this->persistKeys = array_flip($keys);
     }
 
     /**
@@ -129,7 +140,7 @@ class ConfigFile
      */
     public function getPersistKeysMap()
     {
-        return $this->_persistKeys;
+        return $this->persistKeys;
     }
 
     /**
@@ -143,12 +154,13 @@ class ConfigFile
     public function setAllowedKeys($keys)
     {
         if ($keys === null) {
-            $this->_setFilter = null;
+            $this->setFilter = null;
+
             return;
         }
         // checking key presence is much faster than searching so move values
         // to keys
-        $this->_setFilter = array_flip($keys);
+        $this->setFilter = array_flip($keys);
     }
 
     /**
@@ -163,7 +175,7 @@ class ConfigFile
      */
     public function setCfgUpdateReadMapping(array $mapping)
     {
-        $this->_cfgUpdateReadMapping = $mapping;
+        $this->cfgUpdateReadMapping = $mapping;
     }
 
     /**
@@ -173,7 +185,7 @@ class ConfigFile
      */
     public function resetConfigData()
     {
-        $_SESSION[$this->_id] = array();
+        $_SESSION[$this->id] = [];
     }
 
     /**
@@ -185,60 +197,62 @@ class ConfigFile
      */
     public function setConfigData(array $cfg)
     {
-        $_SESSION[$this->_id] = $cfg;
+        $_SESSION[$this->id] = $cfg;
     }
 
     /**
      * Sets config value
      *
-     * @param string $path           Path
-     * @param mixed  $value          Value
-     * @param string $canonical_path Canonical path
+     * @param string $path          Path
+     * @param mixed  $value         Value
+     * @param string $canonicalPath Canonical path
      *
      * @return void
      */
-    public function set($path, $value, $canonical_path = null)
+    public function set($path, $value, $canonicalPath = null)
     {
-        if ($canonical_path === null) {
-            $canonical_path = $this->getCanonicalPath($path);
+        if ($canonicalPath === null) {
+            $canonicalPath = $this->getCanonicalPath($path);
         }
-        // apply key whitelist
-        if ($this->_setFilter !== null
-            && ! isset($this->_setFilter[$canonical_path])
+
+        if ($this->setFilter !== null
+            && ! isset($this->setFilter[$canonicalPath])
         ) {
             return;
         }
         // if the path isn't protected it may be removed
-        if (isset($this->_persistKeys[$canonical_path])) {
-            Core::arrayWrite($path, $_SESSION[$this->_id], $value);
+        if (isset($this->persistKeys[$canonicalPath])) {
+            Core::arrayWrite($path, $_SESSION[$this->id], $value);
+
             return;
         }
 
-        $default_value = $this->getDefault($canonical_path);
-        $remove_path = $value === $default_value;
-        if ($this->_isInSetup) {
+        $defaultValue = $this->getDefault($canonicalPath);
+        $removePath = $value === $defaultValue;
+        if ($this->isInSetup) {
             // remove if it has a default value or is empty
-            $remove_path = $remove_path
-                || (empty($value) && empty($default_value));
+            $removePath = $removePath
+                || (empty($value) && empty($defaultValue));
         } else {
             // get original config values not overwritten by user
             // preferences to allow for overwriting options set in
             // config.inc.php with default values
-            $instance_default_value = Core::arrayRead(
-                $canonical_path,
-                $this->_baseCfg
+            $instanceDefaultValue = Core::arrayRead(
+                $canonicalPath,
+                $this->baseCfg
             );
             // remove if it has a default value and base config (config.inc.php)
             // uses default value
-            $remove_path = $remove_path
-                && ($instance_default_value === $default_value);
+            $removePath = $removePath
+                && ($instanceDefaultValue === $defaultValue);
         }
-        if ($remove_path) {
-            Core::arrayRemove($path, $_SESSION[$this->_id]);
+        if ($removePath) {
+            Core::arrayRemove($path, $_SESSION[$this->id]);
+
             return;
         }
 
-        Core::arrayWrite($path, $_SESSION[$this->_id], $value);
+        Core::arrayWrite($path, $_SESSION[$this->id], $value);
     }
 
     /**
@@ -252,14 +266,20 @@ class ConfigFile
      *
      * @return void
      */
-    private function _flattenArray($value, $key, $prefix)
+    private function flattenArray($value, $key, $prefix)
     {
         // no recursion for numeric arrays
-        if (is_array($value) && !isset($value[0])) {
+        if (is_array($value) && ! isset($value[0])) {
             $prefix .= $key . '/';
-            array_walk($value, array($this, '_flattenArray'), $prefix);
+            array_walk(
+                $value,
+                function ($value, $key, $prefix) {
+                    $this->flattenArray($value, $key, $prefix);
+                },
+                $prefix
+            );
         } else {
-            $this->_flattenArrayResult[$prefix . $key] = $value;
+            $this->flattenArrayResult[$prefix . $key] = $value;
         }
     }
 
@@ -270,11 +290,18 @@ class ConfigFile
      */
     public function getFlatDefaultConfig()
     {
-        $this->_flattenArrayResult = array();
-        array_walk($this->_defaultCfg, array($this, '_flattenArray'), '');
-        $flat_cfg = $this->_flattenArrayResult;
-        $this->_flattenArrayResult = null;
-        return $flat_cfg;
+        $this->flattenArrayResult = [];
+        array_walk(
+            $this->defaultCfg,
+            function ($value, $key, $prefix) {
+                $this->flattenArray($value, $key, $prefix);
+            },
+            ''
+        );
+        $flatConfig = $this->flattenArrayResult;
+        $this->flattenArrayResult = null;
+
+        return $flatConfig;
     }
 
     /**
@@ -288,17 +315,23 @@ class ConfigFile
     public function updateWithGlobalConfig(array $cfg)
     {
         // load config array and flatten it
-        $this->_flattenArrayResult = array();
-        array_walk($cfg, array($this, '_flattenArray'), '');
-        $flat_cfg = $this->_flattenArrayResult;
-        $this->_flattenArrayResult = null;
+        $this->flattenArrayResult = [];
+        array_walk(
+            $cfg,
+            function ($value, $key, $prefix) {
+                $this->flattenArray($value, $key, $prefix);
+            },
+            ''
+        );
+        $flatConfig = $this->flattenArrayResult;
+        $this->flattenArrayResult = null;
 
         // save values map for translating a few user preferences paths,
         // should be complemented by code reading from generated config
         // to perform inverse mapping
-        foreach ($flat_cfg as $path => $value) {
-            if (isset($this->_cfgUpdateReadMapping[$path])) {
-                $path = $this->_cfgUpdateReadMapping[$path];
+        foreach ($flatConfig as $path => $value) {
+            if (isset($this->cfgUpdateReadMapping[$path])) {
+                $path = $this->cfgUpdateReadMapping[$path];
             }
             $this->set($path, $value, $path);
         }
@@ -314,7 +347,7 @@ class ConfigFile
      */
     public function get($path, $default = null)
     {
-        return Core::arrayRead($path, $_SESSION[$this->_id], $default);
+        return Core::arrayRead($path, $_SESSION[$this->id], $default);
     }
 
     /**
@@ -322,14 +355,14 @@ class ConfigFile
      * exist in config.default.php ($cfg) and config.values.php
      * ($_cfg_db['_overrides'])
      *
-     * @param string $canonical_path Canonical path
-     * @param mixed  $default        Default value
+     * @param string $canonicalPath Canonical path
+     * @param mixed  $default       Default value
      *
      * @return mixed
      */
-    public function getDefault($canonical_path, $default = null)
+    public function getDefault($canonicalPath, $default = null)
     {
-        return Core::arrayRead($canonical_path, $this->_defaultCfg, $default);
+        return Core::arrayRead($canonicalPath, $this->defaultCfg, $default);
     }
 
     /**
@@ -343,11 +376,12 @@ class ConfigFile
      */
     public function getValue($path, $default = null)
     {
-        $v = Core::arrayRead($path, $_SESSION[$this->_id], null);
+        $v = Core::arrayRead($path, $_SESSION[$this->id], null);
         if ($v !== null) {
             return $v;
         }
         $path = $this->getCanonicalPath($path);
+
         return $this->getDefault($path, $default);
     }
 
@@ -364,7 +398,7 @@ class ConfigFile
     }
 
     /**
-     * Returns config database entry for $path ($cfg_db in config_info.php)
+     * Returns config database entry for $path
      *
      * @param string $path    path of the variable in config db
      * @param mixed  $default default value
@@ -373,7 +407,7 @@ class ConfigFile
      */
     public function getDbEntry($path, $default = null)
     {
-        return Core::arrayRead($path, $this->_cfgDb, $default);
+        return Core::arrayRead($path, $this->cfgDb, $default);
     }
 
     /**
@@ -383,8 +417,8 @@ class ConfigFile
      */
     public function getServerCount()
     {
-        return isset($_SESSION[$this->_id]['Servers'])
-            ? count($_SESSION[$this->_id]['Servers'])
+        return isset($_SESSION[$this->id]['Servers'])
+            ? count($_SESSION[$this->id]['Servers'])
             : 0;
     }
 
@@ -395,42 +429,41 @@ class ConfigFile
      */
     public function getServers()
     {
-        return isset($_SESSION[$this->_id]['Servers'])
-            ? $_SESSION[$this->_id]['Servers']
-            : null;
+        return $_SESSION[$this->id]['Servers'] ?? null;
     }
 
     /**
      * Returns DSN of given server
      *
-     * @param integer $server server index
+     * @param int $server server index
      *
      * @return string
      */
     public function getServerDSN($server)
     {
-        if (!isset($_SESSION[$this->_id]['Servers'][$server])) {
+        if (! isset($_SESSION[$this->id]['Servers'][$server])) {
             return '';
         }
 
         $path = 'Servers/' . $server;
         $dsn = 'mysqli://';
-        if ($this->getValue("$path/auth_type") == 'config') {
-            $dsn .= $this->getValue("$path/user");
-            if (! empty($this->getValue("$path/password"))) {
+        if ($this->getValue($path . '/auth_type') === 'config') {
+            $dsn .= $this->getValue($path . '/user');
+            if (! empty($this->getValue($path . '/password'))) {
                 $dsn .= ':***';
             }
             $dsn .= '@';
         }
-        if ($this->getValue("$path/host") != 'localhost') {
-            $dsn .= $this->getValue("$path/host");
-            $port = $this->getValue("$path/port");
+        if ($this->getValue($path . '/host') !== 'localhost') {
+            $dsn .= $this->getValue($path . '/host');
+            $port = $this->getValue($path . '/port');
             if ($port) {
                 $dsn .= ':' . $port;
             }
         } else {
-            $dsn .= $this->getValue("$path/socket");
+            $dsn .= $this->getValue($path . '/socket');
         }
+
         return $dsn;
     }
 
@@ -443,14 +476,15 @@ class ConfigFile
      */
     public function getServerName($id)
     {
-        if (!isset($_SESSION[$this->_id]['Servers'][$id])) {
+        if (! isset($_SESSION[$this->id]['Servers'][$id])) {
             return '';
         }
-        $verbose = $this->get("Servers/$id/verbose");
-        if (!empty($verbose)) {
+        $verbose = $this->get('Servers/' . $id . '/verbose');
+        if (! empty($verbose)) {
             return $verbose;
         }
-        $host = $this->get("Servers/$id/host");
+        $host = $this->get('Servers/' . $id . '/host');
+
         return empty($host) ? 'localhost' : $host;
     }
 
@@ -463,22 +497,24 @@ class ConfigFile
      */
     public function removeServer($server)
     {
-        if (!isset($_SESSION[$this->_id]['Servers'][$server])) {
+        if (! isset($_SESSION[$this->id]['Servers'][$server])) {
             return;
         }
-        $last_server = $this->getServerCount();
+        $lastServer = $this->getServerCount();
 
-        for ($i = $server; $i < $last_server; $i++) {
-            $_SESSION[$this->_id]['Servers'][$i]
-                = $_SESSION[$this->_id]['Servers'][$i + 1];
+        for ($i = $server; $i < $lastServer; $i++) {
+            $_SESSION[$this->id]['Servers'][$i]
+                = $_SESSION[$this->id]['Servers'][$i + 1];
         }
-        unset($_SESSION[$this->_id]['Servers'][$last_server]);
+        unset($_SESSION[$this->id]['Servers'][$lastServer]);
 
-        if (isset($_SESSION[$this->_id]['ServerDefault'])
-            && $_SESSION[$this->_id]['ServerDefault'] == $last_server
+        if (! isset($_SESSION[$this->id]['ServerDefault'])
+            || $_SESSION[$this->id]['ServerDefault'] != $lastServer
         ) {
-            unset($_SESSION[$this->_id]['ServerDefault']);
+            return;
         }
+
+        unset($_SESSION[$this->id]['ServerDefault']);
     }
 
     /**
@@ -488,14 +524,17 @@ class ConfigFile
      */
     public function getConfig()
     {
-        $c = $_SESSION[$this->_id];
-        foreach ($this->_cfgUpdateReadMapping as $map_to => $map_from) {
+        $c = $_SESSION[$this->id];
+        foreach ($this->cfgUpdateReadMapping as $mapTo => $mapFrom) {
             // if the key $c exists in $map_to
-            if (Core::arrayRead($map_to, $c) !== null) {
-                Core::arrayWrite($map_to, $c, Core::arrayRead($map_from, $c));
-                Core::arrayRemove($map_from, $c);
+            if (Core::arrayRead($mapTo, $c) === null) {
+                continue;
             }
+
+            Core::arrayWrite($mapTo, $c, Core::arrayRead($mapFrom, $c));
+            Core::arrayRemove($mapFrom, $c);
         }
+
         return $c;
     }
 
@@ -506,26 +545,33 @@ class ConfigFile
      */
     public function getConfigArray()
     {
-        $this->_flattenArrayResult = array();
-        array_walk($_SESSION[$this->_id], array($this, '_flattenArray'), '');
-        $c = $this->_flattenArrayResult;
-        $this->_flattenArrayResult = null;
+        $this->flattenArrayResult = [];
+        array_walk(
+            $_SESSION[$this->id],
+            function ($value, $key, $prefix) {
+                $this->flattenArray($value, $key, $prefix);
+            },
+            ''
+        );
+        $c = $this->flattenArrayResult;
+        $this->flattenArrayResult = null;
 
         $persistKeys = array_diff(
-            array_keys($this->_persistKeys),
+            array_keys($this->persistKeys),
             array_keys($c)
         );
         foreach ($persistKeys as $k) {
             $c[$k] = $this->getDefault($this->getCanonicalPath($k));
         }
 
-        foreach ($this->_cfgUpdateReadMapping as $map_to => $map_from) {
-            if (!isset($c[$map_from])) {
+        foreach ($this->cfgUpdateReadMapping as $mapTo => $mapFrom) {
+            if (! isset($c[$mapFrom])) {
                 continue;
             }
-            $c[$map_to] = $c[$map_from];
-            unset($c[$map_from]);
+            $c[$mapTo] = $c[$mapFrom];
+            unset($c[$mapFrom]);
         }
+
         return $c;
     }
 }

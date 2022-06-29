@@ -1,22 +1,20 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * JavaScript management
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin;
 
-use PhpMyAdmin\Header;
-use PhpMyAdmin\Sanitize;
-use PhpMyAdmin\Url;
+use function defined;
+use function md5;
+use function strpos;
 
 /**
  * Collects information about which JavaScript
  * files and objects are necessary to render
  * the page and generates the relevant code.
- *
- * @package PhpMyAdmin
  */
 class Scripts
 {
@@ -26,48 +24,26 @@ class Scripts
      * @access private
      * @var array of strings
      */
-    private $_files;
+    private $files;
     /**
-     * An array of discrete javascript code snippets
+     * A string of discrete javascript code snippets
      *
      * @access private
-     * @var array of strings
+     * @var string
      */
-    private $_code;
+    private $code;
 
-    /**
-     * Returns HTML code to include javascript file.
-     *
-     * @param array $files The list of js file to include
-     *
-     * @return string HTML code for javascript inclusion.
-     */
-    private function _includeFiles(array $files)
-    {
-        $result = '';
-        foreach ($files as $value) {
-            if (strpos($value['filename'], ".php") !== false) {
-                $file_name = $value['filename'] . Url::getCommon($value['params'] + array('v' => PMA_VERSION));
-                $result .= "<script data-cfasync='false' "
-                    . "type='text/javascript' src='js/" . $file_name
-                    . "'></script>\n";
-            } else {
-                $result .= '<script data-cfasync="false" type="text/javascript" src="js/'
-                    .  $value['filename'] . '?' . Header::getVersionParameter() . '"></script>' . "\n";
-            }
-        }
-        return $result;
-    }
+    /** @var Template */
+    private $template;
 
     /**
      * Generates new Scripts objects
-     *
      */
     public function __construct()
     {
-        $this->_files  = array();
-        $this->_code   = '';
-
+        $this->template = new Template();
+        $this->files  = [];
+        $this->code   = '';
     }
 
     /**
@@ -80,19 +56,19 @@ class Scripts
      */
     public function addFile(
         $filename,
-        array $params = array()
+        array $params = []
     ) {
         $hash = md5($filename);
-        if (!empty($this->_files[$hash])) {
+        if (! empty($this->files[$hash])) {
             return;
         }
 
-        $has_onload = $this->_eventBlacklist($filename);
-        $this->_files[$hash] = array(
+        $has_onload = $this->hasOnloadEvent($filename);
+        $this->files[$hash] = [
             'has_onload' => $has_onload,
             'filename' => $filename,
             'params' => $params,
-        );
+        ];
     }
 
     /**
@@ -113,11 +89,11 @@ class Scripts
      * Determines whether to fire up an onload event for a file
      *
      * @param string $filename The name of the file to be checked
-     *                         against the blacklist
+     *                         against the exclude list.
      *
      * @return int 1 to fire up the event, 0 not to
      */
-    private function _eventBlacklist($filename)
+    private function hasOnloadEvent($filename)
     {
         if (strpos($filename, 'jquery') !== false
             || strpos($filename, 'codemirror') !== false
@@ -140,7 +116,7 @@ class Scripts
      */
     public function addCode($code)
     {
-        $this->_code .= "$code\n";
+        $this->code .= $code . "\n";
     }
 
     /**
@@ -151,18 +127,18 @@ class Scripts
      */
     public function getFiles()
     {
-        $retval = array();
-        foreach ($this->_files as $file) {
+        $retval = [];
+        foreach ($this->files as $file) {
             //If filename contains a "?", continue.
-            if (strpos($file['filename'], "?") !== false) {
+            if (strpos($file['filename'], '?') !== false) {
                 continue;
             }
-            $retval[] = array(
+            $retval[] = [
                 'name' => $file['filename'],
-                'fire' => $file['has_onload']
-            );
-
+                'fire' => $file['has_onload'],
+            ];
         }
+
         return $retval;
     }
 
@@ -173,42 +149,13 @@ class Scripts
      */
     public function getDisplay()
     {
-        $retval = '';
+        $baseDir = defined('PMA_PATH_TO_BASEDIR') ? PMA_PATH_TO_BASEDIR : '';
 
-        if (count($this->_files) > 0) {
-            $retval .= $this->_includeFiles(
-                $this->_files
-            );
-        }
-
-        $code = 'AJAX.scriptHandler';
-        foreach ($this->_files as $file) {
-            $code .= sprintf(
-                '.add("%s",%d)',
-                Sanitize::escapeJsString($file['filename']),
-                $file['has_onload'] ? 1 : 0
-            );
-        }
-        $code .= ';';
-        $this->addCode($code);
-
-        $code = '$(function() {';
-        foreach ($this->_files as $file) {
-            if ($file['has_onload']) {
-                $code .= 'AJAX.fireOnload("';
-                $code .= Sanitize::escapeJsString($file['filename']);
-                $code .= '");';
-            }
-        }
-        $code .= '});';
-        $this->addCode($code);
-
-        $retval .= '<script data-cfasync="false" type="text/javascript">';
-        $retval .= "// <![CDATA[\n";
-        $retval .= $this->_code;
-        $retval .= '// ]]>';
-        $retval .= '</script>';
-
-        return $retval;
+        return $this->template->render('scripts', [
+            'base_dir' => $baseDir,
+            'files' => $this->files,
+            'version' => PMA_VERSION,
+            'code' => $this->code,
+        ]);
     }
 }

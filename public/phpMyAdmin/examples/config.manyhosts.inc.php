@@ -4,18 +4,17 @@
  * many hosts that all have identical configuration otherwise. To add
  * a new host, just drop it into $hosts below. Contributed by
  * Matthew Hawkins.
- *
- * @package    PhpMyAdmin
- * @subpackage Example
  */
 
-$i=0;
-$hosts = array (
-    "foo.example.com",
-    "bar.example.com",
-    "baz.example.com",
-    "quux.example.com",
-);
+declare(strict_types=1);
+
+$i = 0;
+$hosts =  [
+    'foo.example.com',
+    'bar.example.com',
+    'baz.example.com',
+    'quux.example.com',
+];
 
 foreach ($hosts as $host) {
     $i++;

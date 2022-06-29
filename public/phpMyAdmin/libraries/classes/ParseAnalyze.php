@@ -1,19 +1,18 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Parse and analyse a SQL query
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin;
 
-use PhpMyAdmin\Response;
 use PhpMyAdmin\SqlParser\Utils\Query;
+use function count;
+use function strcasecmp;
 
 /**
  * PhpMyAdmin\ParseAnalyze class
- *
- * @package PhpMyAdmin
  */
 class ParseAnalyze
 {
@@ -25,7 +24,7 @@ class ParseAnalyze
      *
      * @return array
      *
-     * @access  public
+     * @access public
      */
     public static function sqlQuery($sql_query, $db)
     {
@@ -35,14 +34,12 @@ class ParseAnalyze
         // Get details about the SQL query.
         $analyzed_sql_results = Query::getAll($sql_query);
 
-        extract($analyzed_sql_results);
         $table = '';
 
         // If the targeted table (and database) are different than the ones that is
         // currently browsed, edit `$db` and `$table` to match them so other elements
         // (page headers, links, navigation panel) can be updated properly.
-        if (!empty($analyzed_sql_results['select_tables'])) {
-
+        if (! empty($analyzed_sql_results['select_tables'])) {
             // Previous table and database name is stored to check if it changed.
             $prev_db = $db;
 
@@ -57,22 +54,23 @@ class ParseAnalyze
                 $table = '';
             } else {
                 $table = $analyzed_sql_results['select_tables'][0][0];
-                if (!empty($analyzed_sql_results['select_tables'][0][1])) {
+                if (! empty($analyzed_sql_results['select_tables'][0][1])) {
                     $db = $analyzed_sql_results['select_tables'][0][1];
                 }
             }
             // There is no point checking if a reload is required if we already decided
             // to reload. Also, no reload is required for AJAX requests.
             $response = Response::getInstance();
-            if (empty($reload) && ! $response->isAjax()) {
+            if (empty($analyzed_sql_results['reload']) && ! $response->isAjax()) {
                 // NOTE: Database names are case-insensitive.
-                $reload  = strcasecmp($db, $prev_db) != 0;
+                $analyzed_sql_results['reload'] = strcasecmp($db, $prev_db) != 0;
             }
-
-            // Updating the array.
-            $analyzed_sql_results['reload'] = $reload;
         }
 
-        return array($analyzed_sql_results, $db, $table);
+        return [
+            $analyzed_sql_results,
+            $db,
+            $table,
+        ];
     }
 }

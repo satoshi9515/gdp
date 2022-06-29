@@ -1,26 +1,29 @@
 <?php
-
 /**
  * Defines an array of tokens and utility functions to iterate through it.
  */
 
+declare(strict_types=1);
+
 namespace PhpMyAdmin\SqlParser;
+
+use ArrayAccess;
+
+use function count;
+use function is_array;
+use function is_string;
 
 /**
  * A structure representing a list of tokens.
- *
- * @category Tokens
- *
- * @license  https://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
  */
-class TokensList implements \ArrayAccess
+class TokensList implements ArrayAccess
 {
     /**
      * The array of tokens.
      *
      * @var array
      */
-    public $tokens = array();
+    public $tokens = [];
 
     /**
      * The count of tokens.
@@ -37,19 +40,17 @@ class TokensList implements \ArrayAccess
     public $idx = 0;
 
     /**
-     * Constructor.
-     *
      * @param array $tokens the initial array of tokens
      * @param int   $count  the count of tokens in the initial array
      */
-    public function __construct(array $tokens = array(), $count = -1)
+    public function __construct(array $tokens = [], $count = -1)
     {
-        if (!empty($tokens)) {
-            $this->tokens = $tokens;
-            if ($count === -1) {
-                $this->count = count($tokens);
-            }
+        if (empty($tokens)) {
+            return;
         }
+
+        $this->tokens = $tokens;
+        $this->count = $count === -1 ? count($tokens) : $count;
     }
 
     /**
@@ -93,12 +94,13 @@ class TokensList implements \ArrayAccess
      * Gets the next token. Skips any irrelevant token (whitespaces and
      * comments).
      *
-     * @return Token
+     * @return Token|null
      */
     public function getNext()
     {
         for (; $this->idx < $this->count; ++$this->idx) {
-            if (($this->tokens[$this->idx]->type !== Token::TYPE_WHITESPACE)
+            if (
+                ($this->tokens[$this->idx]->type !== Token::TYPE_WHITESPACE)
                 && ($this->tokens[$this->idx]->type !== Token::TYPE_COMMENT)
             ) {
                 return $this->tokens[$this->idx++];
@@ -113,7 +115,7 @@ class TokensList implements \ArrayAccess
      *
      * @param int $type the type
      *
-     * @return Token
+     * @return Token|null
      */
     public function getNextOfType($type)
     {
@@ -132,14 +134,12 @@ class TokensList implements \ArrayAccess
      * @param int    $type  the type of the token
      * @param string $value the value of the token
      *
-     * @return Token
+     * @return Token|null
      */
     public function getNextOfTypeAndValue($type, $value)
     {
         for (; $this->idx < $this->count; ++$this->idx) {
-            if (($this->tokens[$this->idx]->type === $type)
-                && ($this->tokens[$this->idx]->value === $value)
-            ) {
+            if (($this->tokens[$this->idx]->type === $type) && ($this->tokens[$this->idx]->value === $value)) {
                 return $this->tokens[$this->idx++];
             }
         }
@@ -153,6 +153,7 @@ class TokensList implements \ArrayAccess
      * @param int   $offset the offset to be set
      * @param Token $value  the token to be saved
      */
+    #[\ReturnTypeWillChange]
     public function offsetSet($offset, $value)
     {
         if ($offset === null) {
@@ -169,6 +170,7 @@ class TokensList implements \ArrayAccess
      *
      * @return Token
      */
+    #[\ReturnTypeWillChange]
     public function offsetGet($offset)
     {
         return $offset < $this->count ? $this->tokens[$offset] : null;
@@ -181,6 +183,7 @@ class TokensList implements \ArrayAccess
      *
      * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function offsetExists($offset)
     {
         return $offset < $this->count;
@@ -191,6 +194,7 @@ class TokensList implements \ArrayAccess
      *
      * @param int $offset the offset to be unset
      */
+    #[\ReturnTypeWillChange]
     public function offsetUnset($offset)
     {
         unset($this->tokens[$offset]);
@@ -198,6 +202,7 @@ class TokensList implements \ArrayAccess
         for ($i = $offset; $i < $this->count; ++$i) {
             $this->tokens[$i] = $this->tokens[$i + 1];
         }
+
         unset($this->tokens[$this->count]);
     }
 }

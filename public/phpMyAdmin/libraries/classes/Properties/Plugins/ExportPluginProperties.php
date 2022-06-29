@@ -1,17 +1,16 @@
 <?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
  * Properties class for the export plug-in
- *
- * @package PhpMyAdmin
  */
+
+declare(strict_types=1);
+
 namespace PhpMyAdmin\Properties\Plugins;
 
 /**
  * Defines possible options and getters and setters for them.
  *
  * @todo    modify descriptions if needed, when the plug-in properties are integrated
- * @package PhpMyAdmin
  */
 class ExportPluginProperties extends PluginPropertyItem
 {
@@ -20,7 +19,7 @@ class ExportPluginProperties extends PluginPropertyItem
      *
      * @var bool
      */
-    private $_forceFile;
+    private $forceFile;
     /* ~~~~~~~~~~~~~~~~~~~~ Getters and Setters ~~~~~~~~~~~~~~~~~~~~ */
 
     /**
@@ -35,7 +34,7 @@ class ExportPluginProperties extends PluginPropertyItem
      */
     public function getItemType()
     {
-        return "export";
+        return 'export';
     }
 
     /**
@@ -45,7 +44,7 @@ class ExportPluginProperties extends PluginPropertyItem
      */
     public function getForceFile()
     {
-        return $this->_forceFile;
+        return $this->forceFile;
     }
 
     /**
@@ -57,6 +56,6 @@ class ExportPluginProperties extends PluginPropertyItem
      */
     public function setForceFile($forceFile)
     {
-        $this->_forceFile = $forceFile;
+        $this->forceFile = $forceFile;
     }
 }
