@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Schema; //この行を追加
 use Illuminate\Support\Facades\URL;    //この行を追加
+use Illuminate\Routing\UrlGenerator;//この行を追加
 
 
 class AppServiceProvider extends ServiceProvider
@@ -24,10 +25,9 @@ class AppServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function boot()
+    //bootメソッドを以下に変更
+     public function boot(UrlGenerator $url)
     {
-        //
-        Schema::defaultStringLength(191);   //この行を追加
-        URL::forceScheme('https');          //この行を追加
+        $url->forceScheme('https');
     }
 }
